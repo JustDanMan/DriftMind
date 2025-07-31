@@ -34,16 +34,16 @@ public class SearchService : ISearchService
     {
         try
         {
-            // Prüfe, ob der Index bereits existiert
+            // Check if the index already exists
             try
             {
                 await _indexClient.GetIndexAsync(IndexName);
-                _logger.LogInformation("Index {IndexName} existiert bereits", IndexName);
+                _logger.LogInformation("Index {IndexName} already exists", IndexName);
                 return;
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
-                // Index existiert nicht, erstelle ihn
+                // Index does not exist, create it
             }
 
             // Erstelle Vector Search Profile
@@ -75,11 +75,11 @@ public class SearchService : ISearchService
             };
 
             await _indexClient.CreateIndexAsync(index);
-            _logger.LogInformation("Index {IndexName} wurde erfolgreich erstellt", IndexName);
+            _logger.LogInformation("Index {IndexName} created successfully", IndexName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler beim Initialisieren des Index {IndexName}", IndexName);
+            _logger.LogError(ex, "Error initializing index {IndexName}", IndexName);
             throw;
         }
     }
@@ -97,14 +97,14 @@ public class SearchService : ISearchService
             var successful = result.Value.Results.Count(r => r.Succeeded);
             var failed = result.Value.Results.Count(r => !r.Succeeded);
             
-            _logger.LogInformation("Indexierung abgeschlossen: {Successful} erfolgreich, {Failed} fehlgeschlagen", 
+            _logger.LogInformation("Indexing completed: {Successful} successful, {Failed} failed", 
                 successful, failed);
             
             return failed == 0;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler beim Indexieren von {ChunkCount} Dokumenten-Chunks", chunks.Count);
+            _logger.LogError(ex, "Error indexing {ChunkCount} document chunks", chunks.Count);
             return false;
         }
     }
@@ -123,7 +123,7 @@ public class SearchService : ISearchService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler bei der Textsuche für Query: {Query}", query);
+            _logger.LogError(ex, "Error in text search for query: {Query}", query);
             throw;
         }
     }
@@ -146,7 +146,7 @@ public class SearchService : ISearchService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler bei der Vektorsuche");
+            _logger.LogError(ex, "Error in vector search");
             throw;
         }
     }
@@ -166,18 +166,18 @@ public class SearchService : ISearchService
                 }
             };
 
-            // Füge Filter für DocumentId hinzu, falls angegeben
+            // Add filter for DocumentId if specified
             if (!string.IsNullOrEmpty(documentId))
             {
                 searchOptions.Filter = $"DocumentId eq '{documentId}'";
             }
 
-            // Hybrid Search: Kombiniere Textsuche und Vektorsuche
+            // Hybrid Search: Combine text search and vector search
             return await _searchClient.SearchAsync<DocumentChunk>(query, searchOptions);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler bei der Hybridsuche für Query: {Query}", query);
+            _logger.LogError(ex, "Error in hybrid search for query: {Query}", query);
             throw;
         }
     }

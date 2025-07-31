@@ -55,7 +55,7 @@ app.MapPost("/upload", async (UploadTextRequest request, IDocumentProcessingServ
         return Results.BadRequest(new UploadTextResponse
         {
             Success = false,
-            Message = "Text darf nicht leer sein."
+            Message = "Text cannot be empty."
         });
     }
 
@@ -64,21 +64,21 @@ app.MapPost("/upload", async (UploadTextRequest request, IDocumentProcessingServ
         return Results.BadRequest(new UploadTextResponse
         {
             Success = false,
-            Message = "ChunkSize muss größer als 0 sein."
+            Message = "ChunkSize must be greater than 0."
         });
     }
 
     var response = await documentService.ProcessTextAsync(request);
     
     return response.Success ? Results.Ok(response) : Results.Problem(
-        title: "Fehler beim Verarbeiten des Texts",
+        title: "Error processing text",
         detail: response.Message,
         statusCode: 500);
 })
 .WithName("UploadText")
 .WithOpenApi()
-.WithSummary("Lädt Text hoch, teilt ihn in Chunks auf und erstellt Embeddings")
-.WithDescription("Dieser Endpunkt nimmt einen Text entgegen, teilt ihn in Chunks auf, erstellt Embeddings und speichert sie in Azure AI Search.");
+.WithSummary("Uploads text, splits it into chunks and creates embeddings")
+.WithDescription("This endpoint accepts text, splits it into chunks, creates embeddings and stores them in Azure AI Search.");
 
 // Search Endpoint
 app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService searchService) =>
@@ -89,7 +89,7 @@ app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService
         {
             Query = request.Query,
             Success = false,
-            Message = "Suchanfrage darf nicht leer sein."
+            Message = "Search query cannot be empty."
         });
     }
 
@@ -99,20 +99,20 @@ app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService
         {
             Query = request.Query,
             Success = false,
-            Message = "MaxResults muss zwischen 1 und 50 liegen."
+            Message = "MaxResults must be between 1 and 50."
         });
     }
 
     var response = await searchService.SearchAsync(request);
     
     return response.Success ? Results.Ok(response) : Results.Problem(
-        title: "Fehler bei der Suche",
+        title: "Error during search",
         detail: response.Message,
         statusCode: 500);
 })
 .WithName("SearchDocuments")
 .WithOpenApi()
-.WithSummary("Durchsucht die Dokumente und generiert eine Antwort mit GPT-4o")
-.WithDescription("Dieser Endpunkt führt eine semantische Suche in der Azure AI Search Datenbank durch und generiert eine Antwort mit GPT-4o basierend auf den gefundenen Dokumenten.");
+.WithSummary("Searches documents and generates an answer with GPT-4o")
+.WithDescription("This endpoint performs a semantic search in the Azure AI Search database and generates an answer with GPT-4o based on the found documents.");
 
 app.Run();

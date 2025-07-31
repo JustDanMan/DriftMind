@@ -31,7 +31,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     {
         try
         {
-            _logger.LogInformation("Starte Suche für Query: {Query}", request.Query);
+            _logger.LogInformation("Starting search for query: {Query}", request.Query);
 
             if (string.IsNullOrWhiteSpace(request.Query))
             {
@@ -39,24 +39,24 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 {
                     Query = request.Query,
                     Success = false,
-                    Message = "Suchanfrage darf nicht leer sein."
+                    Message = "Search query cannot be empty."
                 };
             }
 
-            // 1. Generiere Embedding für die Suchanfrage
+            // 1. Generate embedding for the search query
             var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(request.Query);
             
-            _logger.LogInformation("Embedding für Suchanfrage generiert");
+            _logger.LogInformation("Embedding generated for search query");
 
-            // 2. Führe Hybrid-Suche durch
+            // 2. Perform hybrid search
             var searchResults = request.UseSemanticSearch 
                 ? await _searchService.HybridSearchAsync(request.Query, queryEmbedding, request.MaxResults, request.DocumentId)
                 : await _searchService.SearchAsync(request.Query, request.MaxResults);
 
             var resultsList = searchResults.GetResults().ToList();
-            _logger.LogInformation("Suchergebnisse erhalten: {ResultCount}", resultsList.Count);
+            _logger.LogInformation("Search results received: {ResultCount}", resultsList.Count);
 
-            // 3. Konvertiere zu DTOs
+            // 3. Convert to DTOs
             var results = new List<SearchResult>();
             foreach (var result in resultsList)
             {
@@ -80,28 +80,28 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 TotalResults = resultsList.Count
             };
 
-            // 4. Generiere Antwort mit GPT-4o falls gewünscht
+            // 4. Generate answer with GPT-4o if requested
             if (request.IncludeAnswer && results.Any())
             {
-                _logger.LogInformation("Generiere Antwort mit GPT-4o");
+                _logger.LogInformation("Generating answer with GPT-4o");
                 response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, results);
             }
             else if (request.IncludeAnswer && !results.Any())
             {
-                response.GeneratedAnswer = "Keine relevanten Informationen zu Ihrer Anfrage gefunden.";
+                response.GeneratedAnswer = "No relevant information found for your query.";
             }
 
-            _logger.LogInformation("Suche erfolgreich abgeschlossen");
+            _logger.LogInformation("Search completed successfully");
             return response;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler bei der Suche für Query: {Query}", request.Query);
+            _logger.LogError(ex, "Error during search for query: {Query}", request.Query);
             return new SearchResponse
             {
                 Query = request.Query,
                 Success = false,
-                Message = $"Fehler bei der Suche: {ex.Message}"
+                Message = $"Error during search: {ex.Message}"
             };
         }
     }

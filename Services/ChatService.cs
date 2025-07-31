@@ -28,7 +28,7 @@ public class ChatService : IChatService
         {
             if (!searchResults.Any())
             {
-                return "Keine relevanten Informationen in der Datenbank gefunden.";
+                return "No relevant information found in the database.";
             }
 
             var context = BuildContextFromResults(searchResults);
@@ -47,21 +47,21 @@ public class ChatService : IChatService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler beim Generieren der Antwort für Query: {Query}", query);
-            return "Es ist ein Fehler beim Generieren der Antwort aufgetreten.";
+            _logger.LogError(ex, "Error generating answer for query: {Query}", query);
+            return "An error occurred while generating the answer.";
         }
     }
 
     private string BuildContextFromResults(List<SearchResult> searchResults)
     {
         var contextParts = searchResults
-            .Take(5) // Begrenzen auf die top 5 Ergebnisse
+            .Take(5) // Limit to top 5 results
             .Select((result, index) => 
-                $"[Quelle {index + 1}]\n" +
-                $"Dokument-ID: {result.DocumentId}\n" +
-                $"Relevanz-Score: {result.Score:F2}\n" +
-                $"Inhalt: {result.Content}\n" +
-                (string.IsNullOrEmpty(result.Metadata) ? "" : $"Metadaten: {result.Metadata}\n"))
+                $"[Source {index + 1}]\n" +
+                $"Document ID: {result.DocumentId}\n" +
+                $"Relevance Score: {result.Score:F2}\n" +
+                $"Content: {result.Content}\n" +
+                (string.IsNullOrEmpty(result.Metadata) ? "" : $"Metadata: {result.Metadata}\n"))
             .ToList();
 
         return string.Join("\n---\n", contextParts);
@@ -69,30 +69,30 @@ public class ChatService : IChatService
 
     private string BuildSystemPrompt()
     {
-        return @"Du bist ein hilfreicher AI-Assistent, der Fragen basierend auf bereitgestellten Dokumenten beantwortet.
+        return @"You are a helpful AI assistant that answers questions based on provided documents.
 
-Aufgaben:
-1. Beantworte die Benutzerfrage präzise und hilfreich basierend auf den bereitgestellten Quellen
-2. Verwende nur Informationen aus den bereitgestellten Quellen
-3. Wenn die Informationen nicht ausreichen, sage das ehrlich
-4. Gib konkrete Quellenangaben an (z.B. ""Laut Quelle 1..."")
-5. Antworte auf Deutsch in einem natürlichen, verständlichen Stil
+Tasks:
+1. Answer the user's question precisely and helpfully based on the provided sources
+2. Use only information from the provided sources
+3. If the information is insufficient, say so honestly
+4. Provide specific source references (e.g., ""According to Source 1..."")
+5. Respond in German in a natural, understandable style
 
-Richtlinien:
-- Sei präzise und sachlich
-- Verwende die Informationen aus den Quellen direkt
-- Erfinde keine Informationen
-- Strukturiere deine Antwort logisch
-- Gib an, wenn sich Informationen zwischen Quellen unterscheiden";
+Guidelines:
+- Be precise and factual
+- Use information from the sources directly
+- Do not invent information
+- Structure your answer logically
+- Indicate if information differs between sources";
     }
 
     private string BuildUserPrompt(string query, string context)
     {
-        return $@"Benutzerfrage: {query}
+        return $@"User question: {query}
 
-Verfügbare Quellen:
+Available sources:
 {context}
 
-Bitte beantworte die Frage basierend auf den bereitgestellten Quellen:";
+Please answer the question based on the provided sources:";
     }
 }

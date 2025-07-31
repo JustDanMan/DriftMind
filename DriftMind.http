@@ -5,9 +5,9 @@ POST {{DriftMind_HostAddress}}/upload
 Content-Type: application/json
 
 {
-  "text": "Das ist ein Beispieltext, der in Chunks aufgeteilt und als Embeddings gespeichert werden soll. Dieser Text wird vom System verarbeitet und in einer Azure AI Search Datenbank indexiert. Die Chunks werden überlappend erstellt, um Kontext zu bewahren. Jeder Chunk erhält ein Embedding, das für Vektorsuchvorgänge verwendet werden kann. Das ermöglicht semantische Suche über die gespeicherten Inhalte.",
+  "text": "This is an example text that should be split into chunks and stored as embeddings. This text will be processed by the system and indexed in an Azure AI Search database. The chunks are created with overlap to preserve context. Each chunk receives an embedding that can be used for vector search operations. This enables semantic search over the stored content.",
   "documentId": "test-document-1",
-  "metadata": "Beispiel-Dokument für Tests",
+  "metadata": "Example document for testing",
   "chunkSize": 200,
   "chunkOverlap": 50
 }
@@ -19,8 +19,8 @@ POST {{DriftMind_HostAddress}}/upload
 Content-Type: application/json
 
 {
-  "text": "Künstliche Intelligenz revolutioniert die Art, wie wir mit Technologie interagieren. Machine Learning Algorithmen können aus großen Datenmengen lernen und Muster erkennen. Natural Language Processing ermöglicht es Computern, menschliche Sprache zu verstehen und zu verarbeiten. Deep Learning Netzwerke können komplexe Aufgaben wie Bilderkennung und Sprachübersetzung bewältigen.",
-  "metadata": "AI und ML Grundlagen"
+  "text": "Artificial Intelligence is revolutionizing the way we interact with technology. Machine Learning algorithms can learn from large datasets and identify patterns. Natural Language Processing enables computers to understand and process human language. Deep Learning networks can handle complex tasks like image recognition and language translation.",
+  "metadata": "AI and ML fundamentals"
 }
 
 ###
@@ -30,7 +30,7 @@ POST {{DriftMind_HostAddress}}/search
 Content-Type: application/json
 
 {
-  "query": "Was ist Machine Learning?",
+  "query": "What is Machine Learning?",
   "maxResults": 5,
   "useSemanticSearch": true,
   "includeAnswer": true
@@ -43,7 +43,7 @@ POST {{DriftMind_HostAddress}}/search
 Content-Type: application/json
 
 {
-  "query": "Künstliche Intelligenz",
+  "query": "Artificial Intelligence",
   "maxResults": 10,
   "useSemanticSearch": true,
   "includeAnswer": false
@@ -70,7 +70,7 @@ POST {{DriftMind_HostAddress}}/search
 Content-Type: application/json
 
 {
-  "query": "Technologie",
+  "query": "Technology",
   "maxResults": 5,
   "useSemanticSearch": false,
   "includeAnswer": true

@@ -30,7 +30,7 @@ public class EmbeddingService : IEmbeddingService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler beim Generieren des Embeddings für Text: {Text}", text.Substring(0, Math.Min(100, text.Length)));
+            _logger.LogError(ex, "Error generating embedding for text: {Text}", text.Substring(0, Math.Min(100, text.Length)));
             throw;
         }
     }
@@ -41,7 +41,7 @@ public class EmbeddingService : IEmbeddingService
         {
             var embeddings = new List<IReadOnlyList<float>>();
             
-            // Batch-Verarbeitung für bessere Performance
+            // Batch processing for better performance
             const int batchSize = 10;
             for (int i = 0; i < texts.Count; i += batchSize)
             {
@@ -55,7 +55,7 @@ public class EmbeddingService : IEmbeddingService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler beim Generieren von Embeddings für {Count} Texte", texts.Count);
+            _logger.LogError(ex, "Error generating embeddings for {Count} texts", texts.Count);
             throw;
         }
     }

@@ -33,9 +33,9 @@ public class DocumentProcessingService : IDocumentProcessingService
         {
             var documentId = request.DocumentId ?? Guid.NewGuid().ToString();
             
-            _logger.LogInformation("Verarbeite Text für Dokument {DocumentId}", documentId);
+            _logger.LogInformation("Processing text for document {DocumentId}", documentId);
 
-            // 1. Text in Chunks aufteilen
+            // 1. Split text into chunks
             var chunks = _chunkingService.ChunkText(request.Text, request.ChunkSize, request.ChunkOverlap);
             
             if (!chunks.Any())
@@ -44,18 +44,18 @@ public class DocumentProcessingService : IDocumentProcessingService
                 {
                     DocumentId = documentId,
                     Success = false,
-                    Message = "Keine Chunks konnten aus dem Text erstellt werden."
+                    Message = "No chunks could be created from the text."
                 };
             }
 
-            _logger.LogInformation("Text wurde in {ChunkCount} Chunks aufgeteilt", chunks.Count);
+            _logger.LogInformation("Text was split into {ChunkCount} chunks", chunks.Count);
 
-            // 2. Embeddings für alle Chunks generieren
+            // 2. Generate embeddings for all chunks
             var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunks);
             
-            _logger.LogInformation("Embeddings für {ChunkCount} Chunks generiert", embeddings.Count);
+            _logger.LogInformation("Embeddings generated for {ChunkCount} chunks", embeddings.Count);
 
-            // 3. DocumentChunk-Objekte erstellen
+            // 3. Create DocumentChunk objects
             var documentChunks = new List<DocumentChunk>();
             for (int i = 0; i < chunks.Count; i++)
             {
@@ -71,40 +71,40 @@ public class DocumentProcessingService : IDocumentProcessingService
                 });
             }
 
-            // 4. Chunks in Azure AI Search indexieren
+            // 4. Index chunks in Azure AI Search
             var indexingSuccess = await _searchService.IndexDocumentChunksAsync(documentChunks);
 
             if (indexingSuccess)
             {
-                _logger.LogInformation("Dokument {DocumentId} erfolgreich verarbeitet und indexiert", documentId);
+                _logger.LogInformation("Document {DocumentId} successfully processed and indexed", documentId);
                 return new UploadTextResponse
                 {
                     DocumentId = documentId,
                     ChunksCreated = chunks.Count,
                     Success = true,
-                    Message = $"Text erfolgreich in {chunks.Count} Chunks verarbeitet und indexiert."
+                    Message = $"Text successfully processed into {chunks.Count} chunks and indexed."
                 };
             }
             else
             {
-                _logger.LogWarning("Indexierung für Dokument {DocumentId} war nicht vollständig erfolgreich", documentId);
+                _logger.LogWarning("Indexing for document {DocumentId} was not completely successful", documentId);
                 return new UploadTextResponse
                 {
                     DocumentId = documentId,
                     ChunksCreated = chunks.Count,
                     Success = false,
-                    Message = "Text wurde verarbeitet, aber die Indexierung war nicht vollständig erfolgreich."
+                    Message = "Text was processed, but indexing was not completely successful."
                 };
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Fehler beim Verarbeiten des Texts für Dokument {DocumentId}", request.DocumentId);
+            _logger.LogError(ex, "Error processing text for document {DocumentId}", request.DocumentId);
             return new UploadTextResponse
             {
                 DocumentId = request.DocumentId ?? "unknown",
                 Success = false,
-                Message = $"Fehler bei der Verarbeitung: {ex.Message}"
+                Message = $"Error during processing: {ex.Message}"
             };
         }
     }

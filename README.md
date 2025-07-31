@@ -1,32 +1,32 @@
 # DriftMind - Text Processing API
 
-Eine ASP.NET Core Web API, die Text in Chunks aufteilt, Embeddings erstellt und in Azure AI Search speichert.
+An ASP.NET Core Web API that splits text into chunks, creates embeddings, and stores them in Azure AI Search.
 
 ## Features
 
-- **Text Chunking**: Intelligente Aufteilung von Texten in überlappende Chunks
-- **Embedding Generation**: Erstellung von Vektorrepräsentationen mit Azure OpenAI
-- **Vector Search**: Speicherung und Durchsuchung in Azure AI Search
-- **RESTful API**: Einfache HTTP-basierte Schnittstelle
+- **Text Chunking**: Intelligent splitting of texts into overlapping chunks
+- **Embedding Generation**: Creation of vector representations using Azure OpenAI
+- **Vector Search**: Storage and search in Azure AI Search
+- **RESTful API**: Simple HTTP-based interface
 
-## Voraussetzungen
+## Prerequisites
 
 - .NET 8.0 SDK
-- Azure OpenAI Service (mit text-embedding-ada-002 Deployment)
+- Azure OpenAI Service (with text-embedding-ada-002 deployment)
 - Azure AI Search Service
 
-## Konfiguration
+## Configuration
 
 ### 1. Azure OpenAI Setup
-1. Erstellen Sie eine Azure OpenAI Resource
-2. Deployen Sie das `text-embedding-ada-002` Modell
-3. Notieren Sie sich Endpoint und API Key
+1. Create an Azure OpenAI Resource
+2. Deploy the `text-embedding-ada-002` model
+3. Note down endpoint and API key
 
 ### 2. Azure AI Search Setup
-1. Erstellen Sie einen Azure AI Search Service
-2. Notieren Sie sich Endpoint und API Key
+1. Create an Azure AI Search Service
+2. Note down endpoint and API key
 
-### 3. Konfiguration der appsettings.json
+### 3. Configure appsettings.json
 
 ```json
 {
@@ -43,28 +43,28 @@ Eine ASP.NET Core Web API, die Text in Chunks aufteilt, Embeddings erstellt und 
 }
 ```
 
-## Installation und Start
+## Installation and Start
 
 ```bash
-# Projekt klonen und Dependencies installieren
+# Clone project and install dependencies
 dotnet restore
 
-# Anwendung starten
+# Start application
 dotnet run
 ```
 
-Die API ist dann verfügbar unter: `http://localhost:5175`
+The API is then available at: `http://localhost:5175`
 
 ## API Endpoints
 
 ### POST /upload
 
-Lädt Text hoch, teilt ihn in Chunks auf und erstellt Embeddings.
+Uploads text, splits it into chunks, and creates embeddings.
 
 **Request Body:**
 ```json
 {
-  "text": "Ihr Text hier...",
+  "text": "Your text here...",
   "documentId": "optional-document-id",
   "metadata": "Optional metadata",
   "chunkSize": 1000,
@@ -78,25 +78,25 @@ Lädt Text hoch, teilt ihn in Chunks auf und erstellt Embeddings.
   "documentId": "generated-or-provided-id",
   "chunksCreated": 5,
   "success": true,
-  "message": "Text erfolgreich verarbeitet"
+  "message": "Text successfully processed"
 }
 ```
 
-**Parameter:**
-- `text` (erforderlich): Der zu verarbeitende Text
-- `documentId` (optional): Eindeutige ID für das Dokument
-- `metadata` (optional): Zusätzliche Metadaten
-- `chunkSize` (optional, default: 1000): Maximale Größe eines Chunks
-- `chunkOverlap` (optional, default: 200): Überlappung zwischen Chunks
+**Parameters:**
+- `text` (required): The text to be processed
+- `documentId` (optional): Unique ID for the document
+- `metadata` (optional): Additional metadata
+- `chunkSize` (optional, default: 1000): Maximum size of a chunk
+- `chunkOverlap` (optional, default: 200): Overlap between chunks
 
 ### POST /search
 
-Durchsucht die Dokumente semantisch und generiert Antworten mit GPT-4o.
+Searches documents semantically and generates answers with GPT-4o.
 
 **Request Body:**
 ```json
 {
-  "query": "Ihre Suchanfrage...",
+  "query": "Your search query...",
   "maxResults": 10,
   "useSemanticSearch": true,
   "documentId": "optional-filter",
@@ -107,87 +107,87 @@ Durchsucht die Dokumente semantisch und generiert Antworten mit GPT-4o.
 **Response:**
 ```json
 {
-  "query": "Ihre Suchanfrage...",
+  "query": "Your search query...",
   "results": [
     {
       "id": "document-id_0",
-      "content": "Gefundener Text...",
+      "content": "Found text...",
       "documentId": "document-id",
       "chunkIndex": 0,
       "score": 0.85,
-      "metadata": "Metadaten",
+      "metadata": "Metadata",
       "createdAt": "2025-07-31T10:00:00Z"
     }
   ],
-  "generatedAnswer": "GPT-4o generierte Antwort basierend auf den Suchergebnissen...",
+  "generatedAnswer": "GPT-4o generated answer based on search results...",
   "success": true,
   "totalResults": 5
 }
 ```
 
-**Parameter:**
-- `query` (erforderlich): Die Suchanfrage
-- `maxResults` (optional, default: 10, max: 50): Maximale Anzahl Ergebnisse
-- `useSemanticSearch` (optional, default: true): Semantische Vektorsuche verwenden
-- `documentId` (optional): Filter auf bestimmtes Dokument
-- `includeAnswer` (optional, default: true): GPT-4o Antwort generieren
+**Parameters:**
+- `query` (required): The search query
+- `maxResults` (optional, default: 10, max: 50): Maximum number of results
+- `useSemanticSearch` (optional, default: true): Use semantic vector search
+- `documentId` (optional): Filter to specific document
+- `includeAnswer` (optional, default: true): Generate GPT-4o answer
 
-## Architektur
+## Architecture
 
 ### Services
 
-- **ITextChunkingService**: Intelligente Textaufteilung basierend auf Sätzen
-- **IEmbeddingService**: Embedding-Generierung mit Azure OpenAI
-- **ISearchService**: Azure AI Search Integration mit Vektor-Suche
-- **IDocumentProcessingService**: Orchestrierung des gesamten Upload-Workflows
-- **IChatService**: GPT-4o Integration für Antwortgenerierung
-- **ISearchOrchestrationService**: Orchestrierung der Such- und Antwortprozesse
+- **ITextChunkingService**: Intelligent text splitting based on sentences
+- **IEmbeddingService**: Embedding generation with Azure OpenAI
+- **ISearchService**: Azure AI Search integration with vector search
+- **IDocumentProcessingService**: Orchestration of the entire upload workflow
+- **IChatService**: GPT-4o integration for answer generation
+- **ISearchOrchestrationService**: Orchestration of search and answer processes
 
-### Datenmodell
+### Data Model
 
 **DocumentChunk:**
-- `Id`: Eindeutige Chunk-ID
-- `Content`: Chunk-Inhalt
-- `DocumentId`: Referenz zum ursprünglichen Dokument
-- `ChunkIndex`: Position im Dokument
-- `Embedding`: 1536-dimensionaler Vektor
-- `CreatedAt`: Erstellungszeitpunkt
-- `Metadata`: Zusätzliche Informationen
+- `Id`: Unique chunk ID
+- `Content`: Chunk content
+- `DocumentId`: Reference to original document
+- `ChunkIndex`: Position in document
+- `Embedding`: 1536-dimensional vector
+- `CreatedAt`: Creation timestamp
+- `Metadata`: Additional information
 
-## Verwendung
+## Usage
 
-### Beispiel mit curl (Upload):
+### Example with curl (Upload):
 
 ```bash
 curl -X POST "http://localhost:5175/upload" \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Ihr Beispieltext hier...",
+    "text": "Your example text here...",
     "chunkSize": 500,
     "chunkOverlap": 100
   }'
 ```
 
-### Beispiel mit curl (Search):
+### Example with curl (Search):
 
 ```bash
 curl -X POST "http://localhost:5175/search" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "Was ist Machine Learning?",
+    "query": "What is Machine Learning?",
     "maxResults": 5,
     "useSemanticSearch": true,
     "includeAnswer": true
   }'
 ```
 
-### Beispiel mit der HTTP-Datei:
+### Example with the HTTP file:
 
-Verwenden Sie die bereitgestellte `DriftMind.http` Datei mit VS Code REST Client Extension.
+Use the provided `DriftMind.http` file with VS Code REST Client Extension.
 
-## Entwicklung
+## Development
 
-### Projekt Structure
+### Project Structure
 ```
 DriftMind/
 ├── Models/
@@ -209,21 +209,21 @@ DriftMind/
 
 ### Logging
 
-Das System verwendet strukturiertes Logging. In der Development-Umgebung sind Debug-Logs für Services aktiviert.
+The system uses structured logging. In the development environment, debug logs for services are enabled.
 
 ## Troubleshooting
 
-### Häufige Probleme:
+### Common Issues:
 
-1. **Index Creation Failed**: Überprüfen Sie die Azure Search Konfiguration und Berechtigungen
-2. **Embedding Generation Failed**: Überprüfen Sie Azure OpenAI Endpoint und Deployment-Name
-3. **Authentication Failed**: Überprüfen Sie API Keys und Endpoints
+1. **Index Creation Failed**: Check Azure Search configuration and permissions
+2. **Embedding Generation Failed**: Check Azure OpenAI endpoint and deployment name
+3. **Authentication Failed**: Check API keys and endpoints
 
-### Logs überprüfen:
+### Check logs:
 ```bash
 dotnet run --verbosity detailed
 ```
 
-## Lizenz
+## License
 
 MIT License

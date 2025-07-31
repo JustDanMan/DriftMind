@@ -19,12 +19,12 @@ public class TextChunkingService : ITextChunkingService
         
         foreach (var sentence in sentences)
         {
-            // Wenn das Hinzufügen des Satzes die Chunk-Größe überschreitet
+            // If adding the sentence exceeds the chunk size
             if (currentChunk.Length + sentence.Length > chunkSize && !string.IsNullOrEmpty(currentChunk))
             {
                 chunks.Add(currentChunk.Trim());
                 
-                // Overlap: Behalte die letzten Wörter des vorherigen Chunks
+                // Overlap: Keep the last words of the previous chunk
                 if (overlap > 0)
                 {
                     var words = currentChunk.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -40,7 +40,7 @@ public class TextChunkingService : ITextChunkingService
             currentChunk += sentence + " ";
         }
         
-        // Füge den letzten Chunk hinzu, falls vorhanden
+        // Add the last chunk if present
         if (!string.IsNullOrWhiteSpace(currentChunk))
         {
             chunks.Add(currentChunk.Trim());
@@ -51,7 +51,7 @@ public class TextChunkingService : ITextChunkingService
     
     private List<string> SplitIntoSentences(string text)
     {
-        // Einfache Satzaufteilung basierend auf Satzzeichen
+        // Simple sentence splitting based on punctuation
         var sentences = new List<string>();
         var currentSentence = "";
         
@@ -59,7 +59,7 @@ public class TextChunkingService : ITextChunkingService
         {
             currentSentence += text[i];
             
-            // Prüfe auf Satzende
+            // Check for end of sentence
             if ((text[i] == '.' || text[i] == '!' || text[i] == '?') && 
                 (i == text.Length - 1 || char.IsWhiteSpace(text[i + 1])))
             {
@@ -68,7 +68,7 @@ public class TextChunkingService : ITextChunkingService
             }
         }
         
-        // Füge den letzten Teil hinzu, falls kein Satzzeichen am Ende
+        // Add the last part if no punctuation at the end
         if (!string.IsNullOrWhiteSpace(currentSentence))
         {
             sentences.Add(currentSentence.Trim());
