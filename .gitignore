@@ -60,3 +60,5 @@ coverage/
 *.tgz
 *.tar.gz
 *.zip
+
+appsettings.Development.json
