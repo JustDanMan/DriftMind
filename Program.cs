@@ -3,6 +3,7 @@ using Azure.AI.OpenAI;
 using Azure.Search.Documents.Indexes;
 using DriftMind.DTOs;
 using DriftMind.Services;
+using DriftMind.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Configure file upload options
+builder.Services.Configure<FileUploadOptions>(
+    builder.Configuration.GetSection("FileUpload"));
 
 // Azure OpenAI Configuration
 var azureOpenAIEndpoint = builder.Configuration["AzureOpenAI:Endpoint"]!;
@@ -25,6 +30,7 @@ builder.Services.AddSingleton(sp => new SearchIndexClient(new Uri(azureSearchEnd
 builder.Services.AddScoped<ITextChunkingService, TextChunkingService>();
 builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
+builder.Services.AddScoped<IFileProcessingService, FileProcessingService>();
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ISearchOrchestrationService, SearchOrchestrationService>();
@@ -79,6 +85,41 @@ app.MapPost("/upload", async (UploadTextRequest request, IDocumentProcessingServ
 .WithOpenApi()
 .WithSummary("Uploads text, splits it into chunks and creates embeddings")
 .WithDescription("This endpoint accepts text, splits it into chunks, creates embeddings and stores them in Azure AI Search.");
+
+// Upload File Endpoint
+app.MapPost("/upload/file", async (IFormFile file, string? documentId, string? metadata, 
+    int chunkSize, int chunkOverlap, IDocumentProcessingService documentService) =>
+{
+    if (file == null || file.Length == 0)
+    {
+        return Results.BadRequest(new UploadTextResponse
+        {
+            Success = false,
+            Message = "No file provided or file is empty."
+        });
+    }
+
+    var request = new UploadFileRequest
+    {
+        File = file,
+        DocumentId = documentId,
+        Metadata = metadata,
+        ChunkSize = chunkSize > 0 ? chunkSize : 1000,
+        ChunkOverlap = chunkOverlap >= 0 ? chunkOverlap : 200
+    };
+
+    var response = await documentService.ProcessFileAsync(request);
+    
+    return response.Success ? Results.Ok(response) : Results.Problem(
+        title: "Error processing file",
+        detail: response.Message,
+        statusCode: 500);
+})
+.WithName("UploadFile")
+.WithOpenApi()
+.WithSummary("Uploads a file, extracts text, splits it into chunks and creates embeddings")
+.WithDescription("This endpoint accepts files (.txt, .md, .pdf, .docx), extracts text, splits it into chunks, creates embeddings and stores them in Azure AI Search. Maximum file size: 3MB.")
+.DisableAntiforgery();
 
 // Search Endpoint
 app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService searchService) =>

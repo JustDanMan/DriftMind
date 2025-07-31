@@ -1,12 +1,13 @@
 # DriftMind - Text Processing API
 
-An ASP.NET Core Web API that splits text into chunks, creates embeddings, and stores them in Azure AI Search.
+An ASP.NET Core Web API that splits text into chunks, creates embeddings, and stores them in Azure AI Search. Supports both direct text input and file uploads (.txt, .md, .pdf, .docx).
 
 ## Features
 
 - **Text Chunking**: Intelligent splitting of texts into overlapping chunks
 - **Embedding Generation**: Creation of vector representations using Azure OpenAI
 - **Vector Search**: Storage and search in Azure AI Search
+- **File Upload**: Support for .txt, .md, .pdf, and .docx files (max 3MB)
 - **RESTful API**: Simple HTTP-based interface
 
 ## Prerequisites
@@ -39,6 +40,10 @@ An ASP.NET Core Web API that splits text into chunks, creates embeddings, and st
   "AzureSearch": {
     "Endpoint": "https://your-search-service.search.windows.net",
     "ApiKey": "your-search-api-key"
+  },
+  "FileUpload": {
+    "MaxFileSizeInMB": 3,
+    "AllowedExtensions": [".txt", ".md", ".pdf", ".docx"]
   }
 }
 ```
@@ -88,6 +93,38 @@ Uploads text, splits it into chunks, and creates embeddings.
 - `metadata` (optional): Additional metadata
 - `chunkSize` (optional, default: 1000): Maximum size of a chunk
 - `chunkOverlap` (optional, default: 200): Overlap between chunks
+
+### POST /upload/file
+
+Uploads a file, extracts text, splits it into chunks, and creates embeddings.
+
+**Request:** Multipart form data
+- `file` (required): The file to upload (.txt, .md, .pdf, .docx)
+- `documentId` (optional): Unique ID for the document
+- `metadata` (optional): Additional metadata
+- `chunkSize` (optional, default: 1000): Maximum size of a chunk
+- `chunkOverlap` (optional, default: 200): Overlap between chunks
+
+**Response:**
+```json
+{
+  "documentId": "generated-or-provided-id",
+  "chunksCreated": 5,
+  "success": true,
+  "message": "File 'document.pdf' successfully processed into 5 chunks and indexed.",
+  "fileName": "document.pdf",
+  "fileType": ".pdf",
+  "fileSizeInBytes": 245760
+}
+```
+
+**Supported File Types:**
+- **Text files (.txt)**: Plain text files
+- **Markdown files (.md)**: Markdown formatted files  
+- **PDF files (.pdf)**: Portable Document Format files
+- **Word documents (.docx)**: Microsoft Word documents
+
+**File Size Limit:** 3MB (configurable in appsettings.json)
 
 ### POST /search
 
@@ -139,7 +176,8 @@ Searches documents semantically and generates answers with GPT-4o.
 - **ITextChunkingService**: Intelligent text splitting based on sentences
 - **IEmbeddingService**: Embedding generation with Azure OpenAI
 - **ISearchService**: Azure AI Search integration with vector search
-- **IDocumentProcessingService**: Orchestration of the entire upload workflow
+- **IFileProcessingService**: File content extraction for multiple formats
+- **IDocumentProcessingService**: Orchestration of the entire upload workflow (text and files)
 - **IChatService**: GPT-4o integration for answer generation
 - **ISearchOrchestrationService**: Orchestration of search and answer processes
 
@@ -156,7 +194,18 @@ Searches documents semantically and generates answers with GPT-4o.
 
 ## Usage
 
-### Example with curl (Upload):
+### Example with curl (Upload File):
+
+```bash
+curl -X POST "http://localhost:5175/upload/file" \
+  -F "file=@path/to/your/document.pdf" \
+  -F "documentId=my-doc-1" \
+  -F "metadata=Important document" \
+  -F "chunkSize=500" \
+  -F "chunkOverlap=100"
+```
+
+### Example with curl (Upload Text):
 
 ```bash
 curl -X POST "http://localhost:5175/upload" \
@@ -191,7 +240,8 @@ Use the provided `DriftMind.http` file with VS Code REST Client Extension.
 ```
 DriftMind/
 ├── Models/
-│   └── DocumentChunk.cs
+│   ├── DocumentChunk.cs
+│   └── FileUploadOptions.cs
 ├── DTOs/
 │   ├── UploadDTOs.cs
 │   └── SearchDTOs.cs
@@ -199,6 +249,7 @@ DriftMind/
 │   ├── TextChunkingService.cs
 │   ├── EmbeddingService.cs
 │   ├── SearchService.cs
+│   ├── FileProcessingService.cs
 │   ├── DocumentProcessingService.cs
 │   ├── ChatService.cs
 │   └── SearchOrchestrationService.cs

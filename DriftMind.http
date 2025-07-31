@@ -77,3 +77,68 @@ Content-Type: application/json
 }
 
 ###
+
+# Upload File Example (.txt)
+POST {{DriftMind_HostAddress}}/upload/file
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="sample.txt"
+Content-Type: text/plain
+
+This is a sample text file content that will be processed by the system.
+It contains multiple sentences and paragraphs to demonstrate the chunking functionality.
+
+The text processing pipeline will extract this content and create embeddings for semantic search.
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="documentId"
+
+file-upload-test-1
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="metadata"
+
+Sample text file for testing
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="chunkSize"
+
+500
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="chunkOverlap"
+
+100
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###
+
+# Upload Markdown File Example
+POST {{DriftMind_HostAddress}}/upload/file
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="readme.md"
+Content-Type: text/markdown
+
+# Project Documentation
+
+## Overview
+This is a comprehensive guide to understanding the project architecture.
+
+## Features
+- Text processing
+- Embedding generation
+- Semantic search
+- File upload support
+
+### Technical Details
+The system uses Azure OpenAI for embeddings and Azure AI Search for storage.
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="documentId"
+
+markdown-doc-1
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="metadata"
+
+Project documentation markdown
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###
