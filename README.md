@@ -169,6 +169,105 @@ Searches documents semantically and generates answers with GPT-4o.
 - `documentId` (optional): Filter to specific document
 - `includeAnswer` (optional, default: true): Generate GPT-4o answer
 
+### POST /documents
+
+Lists all documents stored in the database with their metadata and statistics.
+
+**Request Body:**
+```json
+{
+  "maxResults": 20,
+  "skip": 0,
+  "documentIdFilter": "optional-document-id"
+}
+```
+
+**Response:**
+```json
+{
+  "documents": [
+    {
+      "documentId": "document-1",
+      "chunkCount": 5,
+      "fileName": "example.pdf",
+      "fileType": ".pdf",
+      "fileSizeInBytes": 245760,
+      "metadata": "File: example.pdf, Additional info",
+      "createdAt": "2025-07-31T10:00:00Z",
+      "lastUpdated": "2025-07-31T10:00:00Z",
+      "sampleContent": [
+        "This is the beginning of the document...",
+        "The second paragraph contains...",
+        "Additional content follows..."
+      ]
+    }
+  ],
+  "totalDocuments": 1,
+  "returnedDocuments": 1,
+  "success": true,
+  "message": "Retrieved 1 documents successfully."
+}
+```
+
+**Parameters:**
+- `maxResults` (optional, default: 50, max: 100): Maximum number of documents to return
+- `skip` (optional, default: 0): Number of documents to skip for pagination
+- `documentIdFilter` (optional): Filter to show only a specific document
+
+### GET /documents
+
+Alternative GET endpoint to list documents using query parameters.
+
+**Query Parameters:**
+- `maxResults` (optional, default: 50, max: 100): Maximum number of documents
+- `skip` (optional, default: 0): Number of documents to skip
+- `documentId` (optional): Filter to specific document
+
+### DELETE /documents/{documentId}
+
+Deletes a document and all its associated chunks from the search index.
+
+**URL Parameters:**
+- `documentId` (required): The ID of the document to delete
+
+**Response:**
+```json
+{
+  "documentId": "document-1",
+  "success": true,
+  "chunksDeleted": 5,
+  "message": "Document and 5 chunks successfully deleted"
+}
+```
+
+### POST /documents/delete
+
+Alternative endpoint to delete documents using a JSON request body.
+
+**Request Body:**
+```json
+{
+  "documentId": "document-1"
+}
+```
+
+**Response:**
+```json
+{
+  "documentId": "document-1",
+  "success": true,
+  "chunksDeleted": 5,
+  "message": "Document and 5 chunks successfully deleted"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid or missing document ID
+- `404 Not Found`: Document does not exist
+- `500 Internal Server Error`: Deletion failed due to system error
+
+⚠️ **Warning**: Document deletion is permanent and cannot be undone.
+
 ## Architecture
 
 ### Services
@@ -180,6 +279,7 @@ Searches documents semantically and generates answers with GPT-4o.
 - **IDocumentProcessingService**: Orchestration of the entire upload workflow (text and files)
 - **IChatService**: GPT-4o integration for answer generation
 - **ISearchOrchestrationService**: Orchestration of search and answer processes
+- **IDocumentManagementService**: Document listing and metadata management
 
 ### Data Model
 
@@ -252,7 +352,8 @@ DriftMind/
 │   ├── FileProcessingService.cs
 │   ├── DocumentProcessingService.cs
 │   ├── ChatService.cs
-│   └── SearchOrchestrationService.cs
+│   ├── SearchOrchestrationService.cs
+│   └── DocumentManagementService.cs
 ├── Program.cs
 ├── appsettings.json
 └── DriftMind.http

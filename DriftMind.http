@@ -142,3 +142,56 @@ Project documentation markdown
 ------WebKitFormBoundary7MA4YWxkTrZu0gW--
 
 ###
+
+# List All Documents (POST)
+POST {{DriftMind_HostAddress}}/documents
+Content-Type: application/json
+
+{
+  "maxResults": 20,
+  "skip": 0
+}
+
+###
+
+# List All Documents (GET)
+GET {{DriftMind_HostAddress}}/documents?maxResults=10&skip=0
+
+###
+
+# List Specific Document by ID
+POST {{DriftMind_HostAddress}}/documents
+Content-Type: application/json
+
+{
+  "maxResults": 1,
+  "skip": 0,
+  "documentIdFilter": "file-upload-test-1"
+}
+
+###
+
+# List Specific Document by ID (GET)
+GET {{DriftMind_HostAddress}}/documents?maxResults=1&skip=0&documentId=markdown-doc-1
+
+###
+
+# Delete Document by URL Parameter (DELETE)
+DELETE {{DriftMind_HostAddress}}/documents/file-upload-test-1
+
+###
+
+# Delete Document using POST with JSON body
+POST {{DriftMind_HostAddress}}/documents/delete
+Content-Type: application/json
+
+{
+  "documentId": "markdown-doc-1"
+}
+
+###
+
+# Delete Non-Existent Document (should return 404)
+DELETE {{DriftMind_HostAddress}}/documents/non-existent-document
+
+###

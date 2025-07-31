@@ -14,6 +14,10 @@ public interface ISearchService
     Task<SearchResults<DocumentChunk>> SearchAsync(string query, int top = 10);
     Task<SearchResults<DocumentChunk>> VectorSearchAsync(IReadOnlyList<float> queryEmbedding, int top = 10);
     Task<SearchResults<DocumentChunk>> HybridSearchAsync(string query, IReadOnlyList<float> queryEmbedding, int top = 10, string? documentId = null);
+    Task<List<string>> GetAllDocumentIdsAsync();
+    Task<List<DocumentChunk>> GetDocumentChunksAsync(string documentId);
+    Task<Dictionary<string, List<DocumentChunk>>> GetAllDocumentsAsync(int maxResults = 50, int skip = 0);
+    Task<bool> DeleteDocumentAsync(string documentId);
 }
 
 public class SearchService : ISearchService
@@ -179,6 +183,147 @@ public class SearchService : ISearchService
         {
             _logger.LogError(ex, "Error in hybrid search for query: {Query}", query);
             throw;
+        }
+    }
+
+    public async Task<List<string>> GetAllDocumentIdsAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Retrieving all document IDs");
+
+            var searchOptions = new SearchOptions
+            {
+                Size = 1000, // Large number to get all documents
+                Select = { "DocumentId" },
+                IncludeTotalCount = false
+            };
+
+            var searchResults = await _searchClient.SearchAsync<DocumentChunk>("*", searchOptions);
+            var documentIds = new HashSet<string>();
+
+            await foreach (var result in searchResults.Value.GetResultsAsync())
+            {
+                if (!string.IsNullOrEmpty(result.Document.DocumentId))
+                {
+                    documentIds.Add(result.Document.DocumentId);
+                }
+            }
+
+            _logger.LogInformation("Found {Count} unique document IDs", documentIds.Count);
+            return documentIds.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving document IDs");
+            throw;
+        }
+    }
+
+    public async Task<List<DocumentChunk>> GetDocumentChunksAsync(string documentId)
+    {
+        try
+        {
+            _logger.LogInformation("Retrieving chunks for document: {DocumentId}", documentId);
+
+            var searchOptions = new SearchOptions
+            {
+                Filter = $"DocumentId eq '{documentId}'",
+                OrderBy = { "ChunkIndex asc" },
+                Size = 1000 // Large number to get all chunks
+            };
+
+            var searchResults = await _searchClient.SearchAsync<DocumentChunk>("*", searchOptions);
+            var chunks = new List<DocumentChunk>();
+
+            await foreach (var result in searchResults.Value.GetResultsAsync())
+            {
+                chunks.Add(result.Document);
+            }
+
+            _logger.LogInformation("Retrieved {Count} chunks for document {DocumentId}", chunks.Count, documentId);
+            return chunks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving chunks for document: {DocumentId}", documentId);
+            throw;
+        }
+    }
+
+    public async Task<Dictionary<string, List<DocumentChunk>>> GetAllDocumentsAsync(int maxResults = 50, int skip = 0)
+    {
+        try
+        {
+            _logger.LogInformation("Retrieving all documents with pagination (max: {MaxResults}, skip: {Skip})", 
+                maxResults, skip);
+
+            // First, get unique document IDs with pagination
+            var documentIds = await GetAllDocumentIdsAsync();
+            var paginatedDocumentIds = documentIds.Skip(skip).Take(maxResults).ToList();
+
+            var allDocuments = new Dictionary<string, List<DocumentChunk>>();
+
+            // Get chunks for each document
+            foreach (var documentId in paginatedDocumentIds)
+            {
+                var chunks = await GetDocumentChunksAsync(documentId);
+                allDocuments[documentId] = chunks;
+            }
+
+            _logger.LogInformation("Retrieved {Count} documents with their chunks", allDocuments.Count);
+            return allDocuments;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving all documents");
+            throw;
+        }
+    }
+
+    public async Task<bool> DeleteDocumentAsync(string documentId)
+    {
+        try
+        {
+            _logger.LogInformation("Deleting all chunks for document: {DocumentId}", documentId);
+
+            // First, get all chunks for this document to count them
+            var chunksToDelete = await GetDocumentChunksAsync(documentId);
+            
+            if (!chunksToDelete.Any())
+            {
+                _logger.LogWarning("No chunks found for document {DocumentId} to delete", documentId);
+                return true; // Not an error if document doesn't exist
+            }
+
+            // Create a batch of delete actions
+            var deleteActions = chunksToDelete.Select(chunk => 
+                IndexDocumentsAction.Delete(chunk)).ToArray();
+
+            // Execute the batch delete
+            var response = await _searchClient.IndexDocumentsAsync(
+                IndexDocumentsBatch.Create(deleteActions));
+
+            var successfulDeletes = response.Value.Results.Count(r => r.Succeeded);
+            var totalChunks = chunksToDelete.Count;
+
+            if (successfulDeletes == totalChunks)
+            {
+                _logger.LogInformation("Successfully deleted {Count} chunks for document {DocumentId}", 
+                    successfulDeletes, documentId);
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning("Partially deleted document {DocumentId}: {Success}/{Total} chunks", 
+                    documentId, successfulDeletes, totalChunks);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting document: {DocumentId}", documentId);
+            return false;
         }
     }
 }

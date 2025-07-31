@@ -98,24 +98,86 @@ public class FileProcessingService : IFileProcessingService
             await file.CopyToAsync(memoryStream);
             memoryStream.Position = 0;
 
+            _logger.LogDebug("PDF file loaded into memory, size: {Size} bytes", memoryStream.Length);
+
             using var pdfReader = new PdfReader(memoryStream);
             using var pdfDocument = new PdfDocument(pdfReader);
 
             var text = new StringBuilder();
             var pageCount = pdfDocument.GetNumberOfPages();
+            
+            _logger.LogDebug("PDF has {PageCount} pages", pageCount);
 
             for (int i = 1; i <= pageCount; i++)
             {
-                var page = pdfDocument.GetPage(i);
-                var pageText = PdfTextExtractor.GetTextFromPage(page);
-                text.AppendLine(pageText);
+                try
+                {
+                    var page = pdfDocument.GetPage(i);
+                    var pageText = PdfTextExtractor.GetTextFromPage(page);
+                    
+                    if (!string.IsNullOrWhiteSpace(pageText))
+                    {
+                        text.AppendLine(pageText);
+                        _logger.LogDebug("Extracted {Length} characters from page {PageNumber}", pageText.Length, i);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("No text found on page {PageNumber}", i);
+                    }
+                }
+                catch (Exception pageEx)
+                {
+                    _logger.LogWarning(pageEx, "Failed to extract text from page {PageNumber}", i);
+                    // Continue with next page
+                }
             }
 
             var extractedText = text.ToString().Trim();
             
             if (string.IsNullOrWhiteSpace(extractedText))
             {
-                return (false, string.Empty, "No text could be extracted from the PDF file.");
+                _logger.LogWarning("No text could be extracted from any page of the PDF file");
+                
+                // Try to extract PDF metadata as fallback
+                try
+                {
+                    var info = pdfDocument.GetDocumentInfo();
+                    var metadataText = new StringBuilder();
+                    
+                    if (!string.IsNullOrWhiteSpace(info.GetTitle()))
+                    {
+                        metadataText.AppendLine($"Title: {info.GetTitle()}");
+                    }
+                    if (!string.IsNullOrWhiteSpace(info.GetAuthor()))
+                    {
+                        metadataText.AppendLine($"Author: {info.GetAuthor()}");
+                    }
+                    if (!string.IsNullOrWhiteSpace(info.GetSubject()))
+                    {
+                        metadataText.AppendLine($"Subject: {info.GetSubject()}");
+                    }
+                    if (!string.IsNullOrWhiteSpace(info.GetKeywords()))
+                    {
+                        metadataText.AppendLine($"Keywords: {info.GetKeywords()}");
+                    }
+                    
+                    metadataText.AppendLine($"Pages: {pageCount}");
+                    metadataText.AppendLine($"PDF Version: {pdfDocument.GetPdfVersion()}");
+                    metadataText.AppendLine("Note: This PDF contains no extractable text. It may consist primarily of images or scanned pages.");
+                    
+                    var metadataString = metadataText.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(metadataString))
+                    {
+                        _logger.LogInformation("Extracted PDF metadata as fallback: {Length} characters", metadataString.Length);
+                        return (true, metadataString, string.Empty);
+                    }
+                }
+                catch (Exception metadataEx)
+                {
+                    _logger.LogWarning(metadataEx, "Failed to extract PDF metadata");
+                }
+                
+                return (false, string.Empty, "This PDF contains no extractable text. It may consist primarily of images or scanned pages. To process such PDFs, OCR (Optical Character Recognition) functionality would be required, which is not currently implemented.");
             }
 
             _logger.LogInformation("Successfully extracted {Length} characters from PDF file with {PageCount} pages", 
