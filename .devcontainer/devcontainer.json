@@ -1,0 +1,16 @@
+{
+  "name": "DriftMind Devcontainer",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:8.0",
+  "customizations": {
+    "vscode": {
+      "settings": {},
+      "extensions": [
+        "ms-dotnettools.csharp"
+      ]
+    }
+  },
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspaces/DriftMind,type=bind"
+  ],
+  "remoteUser": "vscode"
+}

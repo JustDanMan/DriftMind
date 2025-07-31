@@ -1,0 +1,89 @@
+@DriftMind_HostAddress = http://localhost:5175
+
+GET {{DriftMind_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+# Upload Text Example
+POST {{DriftMind_HostAddress}}/upload
+Content-Type: application/json
+
+{
+  "text": "Das ist ein Beispieltext, der in Chunks aufgeteilt und als Embeddings gespeichert werden soll. Dieser Text wird vom System verarbeitet und in einer Azure AI Search Datenbank indexiert. Die Chunks werden überlappend erstellt, um Kontext zu bewahren. Jeder Chunk erhält ein Embedding, das für Vektorsuchvorgänge verwendet werden kann. Das ermöglicht semantische Suche über die gespeicherten Inhalte.",
+  "documentId": "test-document-1",
+  "metadata": "Beispiel-Dokument für Tests",
+  "chunkSize": 200,
+  "chunkOverlap": 50
+}
+
+###
+
+# Upload Text with default settings
+POST {{DriftMind_HostAddress}}/upload
+Content-Type: application/json
+
+{
+  "text": "Künstliche Intelligenz revolutioniert die Art, wie wir mit Technologie interagieren. Machine Learning Algorithmen können aus großen Datenmengen lernen und Muster erkennen. Natural Language Processing ermöglicht es Computern, menschliche Sprache zu verstehen und zu verarbeiten. Deep Learning Netzwerke können komplexe Aufgaben wie Bilderkennung und Sprachübersetzung bewältigen.",
+  "metadata": "AI und ML Grundlagen"
+}
+
+###
+
+# Search with GPT-4o Answer Generation
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "Was ist Machine Learning?",
+  "maxResults": 5,
+  "useSemanticSearch": true,
+  "includeAnswer": true
+}
+
+###
+
+# Search without Answer Generation
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "Künstliche Intelligenz",
+  "maxResults": 10,
+  "useSemanticSearch": true,
+  "includeAnswer": false
+}
+
+###
+
+# Search in specific Document
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "Deep Learning",
+  "maxResults": 3,
+  "useSemanticSearch": true,
+  "documentId": "test-document-1",
+  "includeAnswer": true
+}
+
+###
+
+# Text-only Search (no semantic/vector search)
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "Technologie",
+  "maxResults": 5,
+  "useSemanticSearch": false,
+  "includeAnswer": true
+}
+
+###Mind_HostAddress = http://localhost:5151
+
+GET {{DriftMind_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
