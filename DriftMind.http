@@ -1,4 +1,4 @@
-@DriftMind_HostAddress = http://localhost:5175
+@DriftMind_HostAddress = http://localhost:5151
 
 # Upload Text Example
 POST {{DriftMind_HostAddress}}/upload
@@ -75,10 +75,5 @@ Content-Type: application/json
   "useSemanticSearch": false,
   "includeAnswer": true
 }
-
-###Mind_HostAddress = http://localhost:5151
-
-GET {{DriftMind_HostAddress}}/weatherforecast/
-Accept: application/json
 
 ###
