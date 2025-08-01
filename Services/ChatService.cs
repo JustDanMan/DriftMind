@@ -14,6 +14,7 @@ public class ChatService : IChatService
 {
     private readonly ChatClient _chatClient;
     private readonly IBlobStorageService _blobStorageService;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<ChatService> _logger;
     private readonly string _chatModel;
 
@@ -26,6 +27,7 @@ public class ChatService : IChatService
         _chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-4o";
         _chatClient = azureOpenAIClient.GetChatClient(_chatModel);
         _blobStorageService = blobStorageService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -38,11 +40,18 @@ public class ChatService : IChatService
                 return "I couldn't find any relevant information to answer your question.";
             }
 
-            // Filter and prioritize results (more lenient for multi-language support)
+            // Get configuration values
+            var maxSources = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
+            var minScore = _configuration.GetValue<double>("ChatService:MinScoreForAnswer", 0.3);
+
+            _logger.LogDebug("Using ChatService configuration: MaxSources={MaxSources}, MinScore={MinScore}", 
+                maxSources, minScore);
+
+            // Filter and prioritize results (configurable filtering)
             var relevantResults = searchResults
-                .Where(r => r.IsRelevant && (r.Score ?? 0) > 0.3) // Reduced from 0.5 to 0.3
+                .Where(r => r.IsRelevant && (r.Score ?? 0) > minScore)
                 .OrderByDescending(r => r.Score)
-                .Take(5) // Limit to top 5 most relevant
+                .Take(maxSources)
                 .ToList();
 
             // If no results meet the strict criteria, use all results marked as relevant
@@ -215,35 +224,6 @@ WICHTIGE REGELN:
 10. Kombiniere Informationen aus mehreren Quellen, wenn sie sich ergänzen
 
 Formatiere deine Antwort klar mit Quellenangaben.";
-    }
-
-    private string BuildContextFromResults_Old(List<SearchResult> searchResults)
-    {
-        // Filter and prioritize results by relevance
-        var relevantResults = searchResults
-            .Where(r => r.IsRelevant && r.RelevanceScore > 0.3)
-            .OrderByDescending(r => r.RelevanceScore)
-            .ThenByDescending(r => r.Score)
-            .Take(5) // Limit to top 5 most relevant results
-            .ToList();
-
-        if (!relevantResults.Any())
-        {
-            // Fallback to original results if no relevant ones found
-            relevantResults = searchResults.Take(3).ToList();
-        }
-
-        var contextParts = relevantResults
-            .Select((result, index) => 
-                $"[Source {index + 1}]\n" +
-                $"Document ID: {result.DocumentId}\n" +
-                $"Search Score: {result.Score:F2}\n" +
-                $"Relevance Score: {result.RelevanceScore:F2}\n" +
-                $"Content: {result.Content}\n" +
-                (string.IsNullOrEmpty(result.Metadata) ? "" : $"Metadata: {result.Metadata}\n"))
-            .ToList();
-
-        return string.Join("\n---\n", contextParts);
     }
 
     private string BuildUserPrompt(string query, string context)

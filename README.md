@@ -45,6 +45,11 @@ An ASP.NET Core Web API that extracts text from files, splits it into chunks, cr
   "FileUpload": {
     "MaxFileSizeInMB": 12,
     "AllowedExtensions": [".txt", ".md", ".pdf", ".docx"]
+  },
+  "ChatService": {
+    "MaxSourcesForAnswer": 10,
+    "MinScoreForAnswer": 0.3,
+    "MaxContextLength": 16000
   }
 }
 ```
@@ -389,9 +394,9 @@ The system applies different filtering strategies based on query characteristics
 ### Answer Generation Quality
 
 #### Source Filtering for GPT-4o
-- **Minimum Score**: 0.3 for inclusion in answer generation (reduced from 0.5)
+- **Minimum Score**: Configurable via `ChatService:MinScoreForAnswer` (default: 0.3)
+- **Maximum Sources**: Configurable via `ChatService:MaxSourcesForAnswer` (default: 10 in development, 8 in production)
 - **Fallback Strategy**: Uses all IsRelevant=true results if none meet score threshold
-- **Maximum Sources**: Top 5 most relevant chunks only
 - **Fallback Messages**: Clear communication when sources aren't relevant
 - **Source Attribution**: Each answer includes source references with scores
 - **Language**: Responses in German with proper source citations
