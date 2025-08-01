@@ -36,6 +36,9 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ISearchOrchestrationService, SearchOrchestrationService>();
 builder.Services.AddScoped<IDocumentManagementService, DocumentManagementService>();
 
+// Configure URLs for production deployment
+builder.WebHost.UseUrls("http://0.0.0.0:8081");
+
 var app = builder.Build();
 
 // Initialize Azure Search Index
