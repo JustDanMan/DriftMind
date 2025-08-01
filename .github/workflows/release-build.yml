@@ -34,18 +34,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image with release tag
+      - name: Build and push Docker images (lowercase repo name)
         run: |
-          docker build -t ghcr.io/${{ github.repository }}:${{ github.event.release.tag_name }} .
+          IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          TAG_NAME=${{ github.event.release.tag_name }}
 
-      - name: Tag image as latest
-        run: |
-          docker tag ghcr.io/${{ github.repository }}:${{ github.event.release.tag_name }} ghcr.io/${{ github.repository }}:latest
+          echo "Building image: $IMAGE_NAME:$TAG_NAME"
+          docker build -t $IMAGE_NAME:$TAG_NAME .
 
-      - name: Push Docker image (release tag)
-        run: |
-          docker push ghcr.io/${{ github.repository }}:${{ github.event.release.tag_name }}
+          echo "Tagging as latest..."
+          docker tag $IMAGE_NAME:$TAG_NAME $IMAGE_NAME:latest
 
-      - name: Push Docker image (latest tag)
-        run: |
-          docker push ghcr.io/${{ github.repository }}:latest
+          echo "Pushing $TAG_NAME..."
+          docker push $IMAGE_NAME:$TAG_NAME
+
+          echo "Pushing latest..."
+          docker push $IMAGE_NAME:latest
