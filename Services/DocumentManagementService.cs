@@ -1,5 +1,6 @@
 using DriftMind.DTOs;
 using DriftMind.Models;
+using System.Linq;
 
 namespace DriftMind.Services;
 
@@ -12,11 +13,16 @@ public interface IDocumentManagementService
 public class DocumentManagementService : IDocumentManagementService
 {
     private readonly ISearchService _searchService;
+    private readonly IBlobStorageService _blobStorageService;
     private readonly ILogger<DocumentManagementService> _logger;
 
-    public DocumentManagementService(ISearchService searchService, ILogger<DocumentManagementService> logger)
+    public DocumentManagementService(
+        ISearchService searchService, 
+        IBlobStorageService blobStorageService,
+        ILogger<DocumentManagementService> logger)
     {
         _searchService = searchService;
+        _blobStorageService = blobStorageService;
         _logger = logger;
     }
 
@@ -200,34 +206,113 @@ public class DocumentManagementService : IDocumentManagementService
             var chunkCount = chunks.Count;
             _logger.LogInformation("Found {ChunkCount} chunks for document {DocumentId}", chunkCount, request.DocumentId);
 
-            // Delete the document
+            // Collect blob paths for deletion
+            var blobPaths = new HashSet<string>();
+            var textContentBlobPaths = new HashSet<string>();
+            
+            foreach (var chunk in chunks)
+            {
+                if (!string.IsNullOrEmpty(chunk.BlobPath))
+                {
+                    blobPaths.Add(chunk.BlobPath);
+                }
+                if (!string.IsNullOrEmpty(chunk.TextContentBlobPath))
+                {
+                    textContentBlobPaths.Add(chunk.TextContentBlobPath);
+                }
+            }
+
+            _logger.LogInformation("Found {BlobCount} original blob files and {TextBlobCount} text content blobs to delete for document {DocumentId}", 
+                blobPaths.Count, textContentBlobPaths.Count, request.DocumentId);
+
+            // Delete the document from Azure AI Search first
             var deleteSuccess = await _searchService.DeleteDocumentAsync(request.DocumentId);
 
-            if (deleteSuccess)
+            if (!deleteSuccess)
             {
-                _logger.LogInformation("Successfully deleted document {DocumentId} with {ChunkCount} chunks", 
-                    request.DocumentId, chunkCount);
-                
-                return new DeleteDocumentResponse
-                {
-                    DocumentId = request.DocumentId,
-                    ChunksDeleted = chunkCount,
-                    Success = true,
-                    Message = $"Document '{request.DocumentId}' successfully deleted. {chunkCount} chunks removed."
-                };
-            }
-            else
-            {
-                _logger.LogWarning("Failed to delete document {DocumentId}", request.DocumentId);
+                _logger.LogWarning("Failed to delete document {DocumentId} from search index", request.DocumentId);
                 
                 return new DeleteDocumentResponse
                 {
                     DocumentId = request.DocumentId,
                     ChunksDeleted = 0,
                     Success = false,
-                    Message = $"Failed to delete document '{request.DocumentId}'. Some chunks may not have been removed."
+                    Message = $"Failed to delete document '{request.DocumentId}' from search index."
                 };
             }
+
+            // Delete blob files (original files)
+            var blobDeletionResults = new List<string>();
+            foreach (var blobPath in blobPaths)
+            {
+                try
+                {
+                    var blobDeleteSuccess = await _blobStorageService.DeleteFileAsync(blobPath);
+                    if (blobDeleteSuccess)
+                    {
+                        blobDeletionResults.Add($"✓ Deleted blob: {blobPath}");
+                        _logger.LogInformation("Successfully deleted blob file: {BlobPath}", blobPath);
+                    }
+                    else
+                    {
+                        blobDeletionResults.Add($"✗ Failed to delete blob: {blobPath}");
+                        _logger.LogWarning("Failed to delete blob file: {BlobPath}", blobPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    blobDeletionResults.Add($"✗ Error deleting blob: {blobPath} - {ex.Message}");
+                    _logger.LogError(ex, "Error deleting blob file: {BlobPath}", blobPath);
+                }
+            }
+
+            // Delete text content blob files (extracted text from PDF/Word)
+            foreach (var textBlobPath in textContentBlobPaths)
+            {
+                try
+                {
+                    var textBlobDeleteSuccess = await _blobStorageService.DeleteFileAsync(textBlobPath);
+                    if (textBlobDeleteSuccess)
+                    {
+                        blobDeletionResults.Add($"✓ Deleted text content blob: {textBlobPath}");
+                        _logger.LogInformation("Successfully deleted text content blob: {TextBlobPath}", textBlobPath);
+                    }
+                    else
+                    {
+                        blobDeletionResults.Add($"✗ Failed to delete text content blob: {textBlobPath}");
+                        _logger.LogWarning("Failed to delete text content blob: {TextBlobPath}", textBlobPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    blobDeletionResults.Add($"✗ Error deleting text content blob: {textBlobPath} - {ex.Message}");
+                    _logger.LogError(ex, "Error deleting text content blob: {TextBlobPath}", textBlobPath);
+                }
+            }
+
+            var totalBlobs = blobPaths.Count + textContentBlobPaths.Count;
+            var successfulBlobDeletions = blobDeletionResults.Count(r => r.StartsWith("✓"));
+
+            _logger.LogInformation("Document {DocumentId} deletion summary: Search index deleted, {SuccessfulBlobs}/{TotalBlobs} blob files deleted", 
+                request.DocumentId, successfulBlobDeletions, totalBlobs);
+
+            var message = $"Document '{request.DocumentId}' deleted from search index. {chunkCount} chunks removed.";
+            if (totalBlobs > 0)
+            {
+                message += $" Blob storage: {successfulBlobDeletions}/{totalBlobs} files deleted.";
+                if (blobDeletionResults.Any())
+                {
+                    message += $"\nDetails:\n{string.Join("\n", blobDeletionResults)}";
+                }
+            }
+
+            return new DeleteDocumentResponse
+            {
+                DocumentId = request.DocumentId,
+                ChunksDeleted = chunkCount,
+                Success = true,
+                Message = message
+            };
         }
         catch (Exception ex)
         {

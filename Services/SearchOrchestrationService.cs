@@ -83,7 +83,13 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     Metadata = result.Document.Metadata,
                     CreatedAt = result.Document.CreatedAt,
                     IsRelevant = isRelevant,
-                    RelevanceScore = combinedScore
+                    RelevanceScore = combinedScore,
+                    // Add blob storage information
+                    BlobPath = result.Document.BlobPath,
+                    BlobContainer = result.Document.BlobContainer,
+                    OriginalFileName = result.Document.OriginalFileName,
+                    ContentType = result.Document.ContentType,
+                    TextContentBlobPath = result.Document.TextContentBlobPath
                 });
             }
 

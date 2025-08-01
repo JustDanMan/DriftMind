@@ -1,6 +1,7 @@
 using Azure;
 using Azure.AI.OpenAI;
 using Azure.Search.Documents.Indexes;
+using Azure.Storage.Blobs;
 using DriftMind.DTOs;
 using DriftMind.Services;
 using DriftMind.Models;
@@ -26,6 +27,10 @@ var azureSearchEndpoint = builder.Configuration["AzureSearch:Endpoint"]!;
 var azureSearchApiKey = builder.Configuration["AzureSearch:ApiKey"]!;
 builder.Services.AddSingleton(sp => new SearchIndexClient(new Uri(azureSearchEndpoint), new AzureKeyCredential(azureSearchApiKey)));
 
+// Azure Blob Storage Configuration
+var azureStorageConnectionString = builder.Configuration["AzureStorage:ConnectionString"]!;
+builder.Services.AddSingleton(sp => new BlobServiceClient(azureStorageConnectionString));
+
 // Register Services
 builder.Services.AddScoped<ITextChunkingService, TextChunkingService>();
 builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
@@ -35,17 +40,21 @@ builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ISearchOrchestrationService, SearchOrchestrationService>();
 builder.Services.AddScoped<IDocumentManagementService, DocumentManagementService>();
+builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 
 // Configure URLs for production deployment
 builder.WebHost.UseUrls("http://0.0.0.0:8081");
 
 var app = builder.Build();
 
-// Initialize Azure Search Index
+// Initialize Azure Search Index and Blob Storage
 using (var scope = app.Services.CreateScope())
 {
     var searchService = scope.ServiceProvider.GetRequiredService<ISearchService>();
     await searchService.InitializeIndexAsync();
+    
+    var blobStorageService = scope.ServiceProvider.GetRequiredService<IBlobStorageService>();
+    await blobStorageService.InitializeAsync();
 }
 
 // Configure the HTTP request pipeline.

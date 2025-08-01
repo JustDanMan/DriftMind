@@ -26,4 +26,19 @@ public class DocumentChunk
 
     [SearchableField]
     public string? Metadata { get; set; }
+
+    [SimpleField(IsFilterable = true)]
+    public string? BlobPath { get; set; }
+
+    [SimpleField(IsFilterable = true)]
+    public string? BlobContainer { get; set; }
+
+    [SimpleField(IsFilterable = true)]
+    public string? OriginalFileName { get; set; }
+
+    [SimpleField(IsFilterable = true)]
+    public string? ContentType { get; set; }
+
+    [SimpleField(IsFilterable = true)]
+    public string? TextContentBlobPath { get; set; }
 }

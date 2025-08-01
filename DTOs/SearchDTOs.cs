@@ -31,4 +31,11 @@ public class SearchResult
     public DateTimeOffset CreatedAt { get; set; }
     public bool IsRelevant { get; set; } = true;
     public double RelevanceScore { get; set; }
+    
+    // Blob Storage Information
+    public string? BlobPath { get; set; }
+    public string? BlobContainer { get; set; }
+    public string? OriginalFileName { get; set; }
+    public string? ContentType { get; set; }
+    public string? TextContentBlobPath { get; set; }
 }

@@ -41,13 +41,27 @@ public class SearchService : ISearchService
             // Check if the index already exists
             try
             {
-                await _indexClient.GetIndexAsync(IndexName);
-                _logger.LogInformation("Index {IndexName} already exists", IndexName);
+                var existingIndex = await _indexClient.GetIndexAsync(IndexName);
+                
+                // Check if the index has the new blob storage fields
+                var hasBlobPath = existingIndex.Value.Fields.Any(f => f.Name == "BlobPath");
+                var hasTextContentBlobPath = existingIndex.Value.Fields.Any(f => f.Name == "TextContentBlobPath");
+                
+                if (!hasBlobPath || !hasTextContentBlobPath)
+                {
+                    _logger.LogInformation("Index {IndexName} exists but missing blob storage fields. Updating...", IndexName);
+                    await UpdateIndexWithBlobFieldsAsync();
+                }
+                else
+                {
+                    _logger.LogInformation("Index {IndexName} already exists with all required fields", IndexName);
+                }
                 return;
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
                 // Index does not exist, create it
+                _logger.LogInformation("Index {IndexName} does not exist. Creating...", IndexName);
             }
 
             // Erstelle Vector Search Profile
@@ -84,6 +98,91 @@ public class SearchService : ISearchService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error initializing index {IndexName}", IndexName);
+            throw;
+        }
+    }
+
+    private async Task UpdateIndexWithBlobFieldsAsync()
+    {
+        try
+        {
+            var existingIndex = await _indexClient.GetIndexAsync(IndexName);
+            var index = existingIndex.Value;
+
+            // Add new blob storage fields if they don't exist
+            var fieldsToAdd = new List<SearchField>();
+
+            if (!index.Fields.Any(f => f.Name == "BlobPath"))
+            {
+                fieldsToAdd.Add(new SearchField("BlobPath", SearchFieldDataType.String)
+                {
+                    IsFilterable = true,
+                    IsSearchable = false,
+                    IsSortable = false,
+                    IsFacetable = false
+                });
+            }
+
+            if (!index.Fields.Any(f => f.Name == "BlobContainer"))
+            {
+                fieldsToAdd.Add(new SearchField("BlobContainer", SearchFieldDataType.String)
+                {
+                    IsFilterable = true,
+                    IsSearchable = false,
+                    IsSortable = false,
+                    IsFacetable = false
+                });
+            }
+
+            if (!index.Fields.Any(f => f.Name == "OriginalFileName"))
+            {
+                fieldsToAdd.Add(new SearchField("OriginalFileName", SearchFieldDataType.String)
+                {
+                    IsFilterable = true,
+                    IsSearchable = false,
+                    IsSortable = false,
+                    IsFacetable = false
+                });
+            }
+
+            if (!index.Fields.Any(f => f.Name == "ContentType"))
+            {
+                fieldsToAdd.Add(new SearchField("ContentType", SearchFieldDataType.String)
+                {
+                    IsFilterable = true,
+                    IsSearchable = false,
+                    IsSortable = false,
+                    IsFacetable = false
+                });
+            }
+
+            if (!index.Fields.Any(f => f.Name == "TextContentBlobPath"))
+            {
+                fieldsToAdd.Add(new SearchField("TextContentBlobPath", SearchFieldDataType.String)
+                {
+                    IsFilterable = true,
+                    IsSearchable = false,
+                    IsSortable = false,
+                    IsFacetable = false
+                });
+            }
+
+            if (fieldsToAdd.Any())
+            {
+                // Add the new fields to the existing index
+                foreach (var field in fieldsToAdd)
+                {
+                    index.Fields.Add(field);
+                }
+
+                await _indexClient.CreateOrUpdateIndexAsync(index);
+                _logger.LogInformation("Index {IndexName} updated with {FieldCount} new blob storage fields", 
+                    IndexName, fieldsToAdd.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating index {IndexName} with blob storage fields", IndexName);
             throw;
         }
     }
