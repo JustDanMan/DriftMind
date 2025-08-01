@@ -1,13 +1,14 @@
 # DriftMind - Text Processing API
 
-An ASP.NET Core Web API that splits text into chunks, creates embeddings, and stores them in Azure AI Search. Supports both direct text input and file uploads (.txt, .md, .pdf, .docx).
+An ASP.NET Core Web API that extracts text from files, splits it into chunks, creates embeddings, and stores them in Azure AI Search. Supports file uploads (.txt, .md, .pdf, .docx).
 
 ## Features
 
 - **Text Chunking**: Intelligent splitting of texts into overlapping chunks
 - **Embedding Generation**: Creation of vector representations using Azure OpenAI
 - **Vector Search**: Storage and search in Azure AI Search
-- **File Upload**: Support for .txt, .md, .pdf, and .docx files (max 3MB)
+- **File Upload**: Support for .txt, .md, .pdf, and .docx files (max 12MB)
+- **Document Management**: Full CRUD operations for documents
 - **RESTful API**: Simple HTTP-based interface
 
 ## Prerequisites
@@ -42,7 +43,7 @@ An ASP.NET Core Web API that splits text into chunks, creates embeddings, and st
     "ApiKey": "your-search-api-key"
   },
   "FileUpload": {
-    "MaxFileSizeInMB": 3,
+    "MaxFileSizeInMB": 12,
     "AllowedExtensions": [".txt", ".md", ".pdf", ".docx"]
   }
 }
@@ -63,38 +64,6 @@ The API is then available at: `http://localhost:5175`
 ## API Endpoints
 
 ### POST /upload
-
-Uploads text, splits it into chunks, and creates embeddings.
-
-**Request Body:**
-```json
-{
-  "text": "Your text here...",
-  "documentId": "optional-document-id",
-  "metadata": "Optional metadata",
-  "chunkSize": 1000,
-  "chunkOverlap": 200
-}
-```
-
-**Response:**
-```json
-{
-  "documentId": "generated-or-provided-id",
-  "chunksCreated": 5,
-  "success": true,
-  "message": "Text successfully processed"
-}
-```
-
-**Parameters:**
-- `text` (required): The text to be processed
-- `documentId` (optional): Unique ID for the document
-- `metadata` (optional): Additional metadata
-- `chunkSize` (optional, default: 1000): Maximum size of a chunk
-- `chunkOverlap` (optional, default: 200): Overlap between chunks
-
-### POST /upload/file
 
 Uploads a file, extracts text, splits it into chunks, and creates embeddings.
 
@@ -121,10 +90,10 @@ Uploads a file, extracts text, splits it into chunks, and creates embeddings.
 **Supported File Types:**
 - **Text files (.txt)**: Plain text files
 - **Markdown files (.md)**: Markdown formatted files  
-- **PDF files (.pdf)**: Portable Document Format files
+- **PDF files (.pdf)**: Portable Document Format files (text-based or with metadata extraction for image-based PDFs)
 - **Word documents (.docx)**: Microsoft Word documents
 
-**File Size Limit:** 3MB (configurable in appsettings.json)
+**File Size Limit:** 12MB (configurable in appsettings.json)
 
 ### POST /search
 
@@ -297,7 +266,7 @@ Alternative endpoint to delete documents using a JSON request body.
 ### Example with curl (Upload File):
 
 ```bash
-curl -X POST "http://localhost:5175/upload/file" \
+curl -X POST "http://localhost:5151/upload" \
   -F "file=@path/to/your/document.pdf" \
   -F "documentId=my-doc-1" \
   -F "metadata=Important document" \
@@ -305,22 +274,10 @@ curl -X POST "http://localhost:5175/upload/file" \
   -F "chunkOverlap=100"
 ```
 
-### Example with curl (Upload Text):
-
-```bash
-curl -X POST "http://localhost:5175/upload" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Your example text here...",
-    "chunkSize": 500,
-    "chunkOverlap": 100
-  }'
-```
-
 ### Example with curl (Search):
 
 ```bash
-curl -X POST "http://localhost:5175/search" \
+curl -X POST "http://localhost:5151/search" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What is Machine Learning?",

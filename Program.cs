@@ -54,41 +54,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Upload Endpoint
-app.MapPost("/upload", async (UploadTextRequest request, IDocumentProcessingService documentService) =>
-{
-    if (string.IsNullOrWhiteSpace(request.Text))
-    {
-        return Results.BadRequest(new UploadTextResponse
-        {
-            Success = false,
-            Message = "Text cannot be empty."
-        });
-    }
-
-    if (request.ChunkSize <= 0)
-    {
-        return Results.BadRequest(new UploadTextResponse
-        {
-            Success = false,
-            Message = "ChunkSize must be greater than 0."
-        });
-    }
-
-    var response = await documentService.ProcessTextAsync(request);
-    
-    return response.Success ? Results.Ok(response) : Results.Problem(
-        title: "Error processing text",
-        detail: response.Message,
-        statusCode: 500);
-})
-.WithName("UploadText")
-.WithOpenApi()
-.WithSummary("Uploads text, splits it into chunks and creates embeddings")
-.WithDescription("This endpoint accepts text, splits it into chunks, creates embeddings and stores them in Azure AI Search.");
-
-// Upload File Endpoint
-app.MapPost("/upload/file", async (IFormFile file, string? documentId, string? metadata, 
+// Upload Endpoint (File Upload Only)
+app.MapPost("/upload", async (IFormFile file, string? documentId, string? metadata, 
     int? chunkSize, int? chunkOverlap, IDocumentProcessingService documentService) =>
 {
     if (file == null || file.Length == 0)
@@ -119,7 +86,7 @@ app.MapPost("/upload/file", async (IFormFile file, string? documentId, string? m
 .WithName("UploadFile")
 .WithOpenApi()
 .WithSummary("Uploads a file, extracts text, splits it into chunks and creates embeddings")
-.WithDescription("This endpoint accepts files (.txt, .md, .pdf, .docx), extracts text, splits it into chunks, creates embeddings and stores them in Azure AI Search. Maximum file size: 3MB.")
+.WithDescription("This endpoint accepts files (.txt, .md, .pdf, .docx), extracts text, splits it into chunks, creates embeddings and stores them in Azure AI Search. Maximum file size: 12MB.")
 .DisableAntiforgery();
 
 // Search Endpoint
