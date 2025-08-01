@@ -71,8 +71,8 @@ Uploads a file, extracts text, splits it into chunks, and creates embeddings.
 - `file` (required): The file to upload (.txt, .md, .pdf, .docx)
 - `documentId` (optional): Unique ID for the document
 - `metadata` (optional): Additional metadata
-- `chunkSize` (optional, default: 1000): Maximum size of a chunk
-- `chunkOverlap` (optional, default: 200): Overlap between chunks
+- `chunkSize` (optional, default: 300): Maximum size of a chunk
+- `chunkOverlap` (optional, default: 20): Overlap between chunks
 
 **Response:**
 ```json
@@ -270,8 +270,8 @@ curl -X POST "http://localhost:5151/upload" \
   -F "file=@path/to/your/document.pdf" \
   -F "documentId=my-doc-1" \
   -F "metadata=Important document" \
-  -F "chunkSize=500" \
-  -F "chunkOverlap=100"
+  -F "chunkSize=300" \
+  -F "chunkOverlap=20"
 ```
 
 ### Example with curl (Search):

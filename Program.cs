@@ -84,8 +84,8 @@ app.MapPost("/upload", async (IFormFile file, string? documentId, string? metada
         File = file,
         DocumentId = documentId,
         Metadata = metadata,
-        ChunkSize = chunkSize ?? 1000,
-        ChunkOverlap = chunkOverlap ?? 200
+        ChunkSize = chunkSize ?? 300,
+        ChunkOverlap = chunkOverlap ?? 20
     };
 
     var response = await documentService.ProcessFileAsync(request);

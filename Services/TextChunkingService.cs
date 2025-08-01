@@ -2,12 +2,12 @@ namespace DriftMind.Services;
 
 public interface ITextChunkingService
 {
-    List<string> ChunkText(string text, int chunkSize = 1000, int overlap = 200);
+    List<string> ChunkText(string text, int chunkSize = 300, int overlap = 20);
 }
 
 public class TextChunkingService : ITextChunkingService
 {
-    public List<string> ChunkText(string text, int chunkSize = 1000, int overlap = 200)
+    public List<string> ChunkText(string text, int chunkSize = 300, int overlap = 20)
     {
         if (string.IsNullOrWhiteSpace(text))
             return new List<string>();

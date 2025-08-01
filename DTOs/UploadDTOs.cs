@@ -5,8 +5,8 @@ public class UploadTextRequest
     public string Text { get; set; } = string.Empty;
     public string? DocumentId { get; set; }
     public string? Metadata { get; set; }
-    public int ChunkSize { get; set; } = 1000;
-    public int ChunkOverlap { get; set; } = 200;
+    public int ChunkSize { get; set; } = 300;
+    public int ChunkOverlap { get; set; } = 20;
 }
 
 public class UploadFileRequest
@@ -14,8 +14,8 @@ public class UploadFileRequest
     public IFormFile File { get; set; } = null!;
     public string? DocumentId { get; set; }
     public string? Metadata { get; set; }
-    public int ChunkSize { get; set; } = 1000;
-    public int ChunkOverlap { get; set; } = 200;
+    public int ChunkSize { get; set; } = 300;
+    public int ChunkOverlap { get; set; } = 20;
 }
 
 public class UploadTextResponse
