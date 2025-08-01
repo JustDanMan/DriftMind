@@ -320,6 +320,328 @@ DriftMind/
 
 The system uses structured logging. In the development environment, debug logs for services are enabled.
 
+## Search Quality & Relevance Filtering
+
+DriftMind implements advanced relevance filtering and scoring to ensure high-quality search results, especially for short queries and diverse content types.
+
+### Hybrid Search Architecture
+
+The search system combines two complementary approaches:
+
+1. **Vector Search**: Uses Azure OpenAI embeddings for semantic similarity
+2. **Text Search**: Traditional full-text search for exact term matching
+3. **Hybrid Scoring**: Combines both approaches with weighted relevance scores
+
+### Relevance Scoring Algorithm
+
+#### Combined Scoring Formula
+```
+Final Score = (Vector Score × 0.7) + (Text Relevance × 0.3)
+```
+
+#### Text Relevance Calculation
+- **Exact Term Matches**: Direct word matches in content (weighted 3x)
+- **Partial Matches**: Substring matches within words (weighted 2x)
+- **Synonym Matches**: Multi-language synonym recognition (weighted 1.5x)
+- **Meaningful Terms**: Filters out stop words and terms < 3 characters
+- **Adaptive Thresholds**: Adjusts based on query and content characteristics
+
+### Adaptive Filtering
+
+The system applies different filtering strategies based on query characteristics:
+
+#### Short Queries (< 15 characters, ≤ 2 terms)
+- **Threshold**: Score > 0.2 OR Vector Score > 0.5
+- **Multiplier**: 4x results for better filtering
+- **Text Match Requirement**: 20% of query terms
+- **Use Case**: Single words like "PDF", "Azure", "Python"
+
+#### Medium Queries (< 50 characters, ≤ 5 terms)
+- **Threshold**: IsRelevant OR Score > 0.3
+- **Multiplier**: 3x results for filtering
+- **Text Match Requirement**: 20% of query terms
+- **Use Case**: "How to configure Azure Files"
+
+#### Long Queries (≥ 50 characters, > 5 terms)
+- **Threshold**: IsRelevant OR Score > 0.4
+- **Multiplier**: 3x results for filtering
+- **Text Match Requirement**: 25% of query terms
+- **Use Case**: Complex technical questions
+
+### Content-Aware Filtering
+
+#### Short Content (< 200 characters)
+- **Reduced Threshold**: 15% term match requirement
+- **Purpose**: Ensures metadata, titles, and brief notes are found
+- **Examples**: PDF metadata, file names, quick notes
+
+#### Regular Content (≥ 200 characters)
+- **Standard Threshold**: 20% term match requirement
+- **Purpose**: Standard document chunks and paragraphs
+
+### High-Confidence Scoring
+
+#### Auto-Relevant Criteria
+- **Vector Score > 0.75**: Automatically considered relevant (reduced from 0.8)
+- **Purpose**: Trust high semantic similarity even without exact word matches
+- **Use Case**: Synonyms, related concepts, multilingual content
+
+### Answer Generation Quality
+
+#### Source Filtering for GPT-4o
+- **Minimum Score**: 0.3 for inclusion in answer generation (reduced from 0.5)
+- **Fallback Strategy**: Uses all IsRelevant=true results if none meet score threshold
+- **Maximum Sources**: Top 5 most relevant chunks only
+- **Fallback Messages**: Clear communication when sources aren't relevant
+- **Source Attribution**: Each answer includes source references with scores
+- **Language**: Responses in German with proper source citations
+
+#### Answer Quality Controls
+```
+"According to Source 1 (Score: 0.82, Document: azure-guide.pdf): ..."
+```
+
+### Performance Optimizations
+
+#### Query Processing
+- **Embedding Caching**: Reduces API calls for repeated queries
+- **Batch Operations**: Efficient indexing and deletion
+- **Adaptive Result Limits**: More results for complex queries
+
+#### Memory Efficiency
+- **Streaming Results**: Processes search results as they arrive
+- **Chunk Limits**: Maximum 5 sources for answer generation
+- **Context Truncation**: Prevents token limit issues
+
+### Search Quality Metrics
+
+#### Relevance Indicators
+- **Vector Score**: Semantic similarity (0.0 - 1.0)
+- **Text Score**: Term match percentage (0.0 - 1.0)
+- **Combined Score**: Weighted final relevance (0.0 - 1.0)
+- **IsRelevant**: Boolean relevance determination
+
+#### Quality Thresholds
+```json
+{
+  "vector_confidence": {
+    "high": "> 0.75",
+    "medium": "0.5 - 0.75", 
+    "low": "< 0.5"
+  },
+  "text_relevance": {
+    "high": "> 0.5",
+    "medium": "0.2 - 0.5",
+    "low": "< 0.2"
+  }
+}
+```
+
+### Multi-Language Support
+
+#### Language-Aware Processing
+- **German Stop Words**: Extended list (50+ terms) for German content
+- **English Stop Words**: Extended list (50+ terms) for English content
+- **Multi-Language Synonyms**: Cross-language synonym recognition (German ↔ English)
+- **Semantic Embedding**: Language-agnostic vector representations
+- **Mixed Content**: Handles documents with multiple languages
+
+#### Cross-Language Synonym Examples
+```csharp
+// German to English synonyms
+"betreiben" → ["operate", "run", "host", "deploy", "manage"]
+"datenbank" → ["database", "storage", "repository"]
+"konfigurieren" → ["configure", "setup", "install"]
+
+// English to German synonyms  
+"deploy" → ["betreiben", "einrichten", "installieren"]
+"database" → ["datenbank", "speicher", "datenspeicher"]
+"configure" → ["konfigurieren", "einrichten", "einstellung"]
+```
+
+#### Multi-Language Query Examples
+```bash
+# German query finding English content
+curl -X POST "http://localhost:5151/search" \
+  -d '{"query": "SQLite Datenbank betreiben", "maxResults": 3}'
+# Finds: "How to operate SQLite database", "Deploy SQLite", etc.
+
+# English query finding German content  
+curl -X POST "http://localhost:5151/search" \
+  -d '{"query": "deploy database Azure", "maxResults": 3}'
+# Finds: "SQLite Datenbank auf Azure betreiben", etc.
+```
+
+### Example Search Flow
+
+```
+1. Query: "PDF" (Short query)
+   ├── Generate embedding for "PDF"
+   ├── Hybrid search with 4x multiplier (20 results)
+   ├── Apply lenient filtering (Score > 0.2)
+   ├── Return top relevant results
+   └── Generate answer with best sources
+
+2. Query: "How to configure Azure Files SMB?" (Medium query)
+   ├── Extract meaningful terms: ["configure", "Azure", "Files", "SMB"]
+   ├── Hybrid search with 3x multiplier
+   ├── Apply lenient filtering (IsRelevant OR Score > 0.3)
+   ├── Combine vector and text scores with synonym matching
+   └── Return precise, relevant results
+
+3. Query: "Wie kann ich eine SQLite Datenbank betreiben?" (Long German query)
+   ├── Extract meaningful terms: ["sqlite", "datenbank", "betreiben"]
+   ├── Apply multi-language synonyms: ["database", "operate", "run"]
+   ├── Hybrid search with 3x multiplier
+   ├── Apply adaptive filtering (IsRelevant OR Score > 0.4)
+   └── Find relevant content across languages
+```
+
+### Search Configuration Parameters
+
+#### Vector Search Configuration
+```json
+{
+  "vectorSearch": {
+    "algorithm": "HNSW",
+    "metric": "Cosine",
+    "parameters": {
+      "m": 4,
+      "efConstruction": 400,
+      "efSearch": 500
+    }
+  }
+}
+```
+
+#### Relevance Tuning Parameters
+```csharp
+// RelevanceAnalyzer Configuration (Updated)
+public static class SearchConfig
+{
+    // Score thresholds (reduced for better recall)
+    public const double HIGH_CONFIDENCE_THRESHOLD = 0.75; // Reduced from 0.8
+    public const double MEDIUM_CONFIDENCE_THRESHOLD = 0.5;
+    public const double ANSWER_GENERATION_THRESHOLD = 0.5;
+    
+    // Text relevance thresholds (more lenient)
+    public const double SHORT_QUERY_THRESHOLD = 0.2;  // Reduced from 0.3
+    public const double MEDIUM_QUERY_THRESHOLD = 0.2; // Reduced from 0.35
+    public const double LONG_QUERY_THRESHOLD = 0.25;  // Reduced from 0.4
+    public const double SHORT_CONTENT_THRESHOLD = 0.15; // Reduced from 0.25
+    
+    // Query categorization
+    public const int SHORT_QUERY_LENGTH = 15;
+    public const int MEDIUM_QUERY_LENGTH = 50;
+    public const int SHORT_QUERY_TERMS = 2;
+    public const int MEDIUM_QUERY_TERMS = 5;
+    
+    // Content categorization
+    public const int SHORT_CONTENT_LENGTH = 200;
+    
+    // Search multipliers
+    public const int SHORT_QUERY_MULTIPLIER = 4;
+    public const int STANDARD_QUERY_MULTIPLIER = 3;
+    
+    // Answer generation
+    public const int MAX_SOURCES_FOR_ANSWER = 5;
+    
+    // Score weights (enhanced with synonyms)
+    public const double VECTOR_SCORE_WEIGHT = 0.7;
+    public const double TEXT_SCORE_WEIGHT = 0.3;
+    public const double EXACT_MATCH_WEIGHT = 3.0;     // Increased from 2.0
+    public const double PARTIAL_MATCH_WEIGHT = 2.0;   // Increased from 1.0
+    public const double SYNONYM_MATCH_WEIGHT = 1.5;   // New: synonym matching
+}
+```
+
+#### Customizing Search Behavior
+
+To modify search behavior, adjust parameters in the `RelevanceAnalyzer` class:
+
+```csharp
+// For more lenient filtering (finds more results) - CURRENT SETTINGS
+private static double CalculateAdaptiveThreshold(...)
+{
+    if (queryTermCount <= 2) return 0.2; // More lenient for short queries
+    if (contentLength < 200) return 0.15; // More lenient for short content
+    return 0.25; // More lenient overall
+}
+
+// For stricter filtering (higher precision) - ALTERNATIVE
+private static double CalculateAdaptiveThreshold(...)
+{
+    if (queryTermCount <= 2) return 0.4; // Stricter for short queries
+    if (contentLength < 200) return 0.35; // Stricter for short content
+    return 0.5; // Stricter overall
+}
+```
+
+### Search API Response Format
+
+#### Extended Search Result with Scoring
+```json
+{
+  "query": "Azure Files configuration",
+  "results": [
+    {
+      "id": "doc-123_0",
+      "content": "To configure Azure Files, you need...",
+      "documentId": "azure-guide-v2",
+      "chunkIndex": 0,
+      "score": 0.85,
+      "vectorScore": 0.82,
+      "metadata": "File: azure-setup.pdf",
+      "createdAt": "2025-08-01T10:00:00Z",
+      "isRelevant": true,
+      "relevanceScore": 0.85
+    }
+  ],
+  "generatedAnswer": "According to Source 1 (Score: 0.85): To configure Azure Files...",
+  "success": true,
+  "totalResults": 3
+}
+```
+
+#### Score Interpretation Guide
+- **Score 0.9-1.0**: Highly relevant, exact match
+- **Score 0.7-0.9**: Very relevant, strong semantic match
+- **Score 0.5-0.7**: Relevant, good semantic or text match
+- **Score 0.3-0.5**: Potentially relevant, weak match
+- **Score 0.0-0.3**: Low relevance, likely not useful
+
+### Performance Monitoring
+
+#### Search Quality Metrics
+Monitor these metrics to assess search quality:
+
+```bash
+# In application logs, look for:
+info: SearchOrchestrationService[0] 
+      "Filtered 12 results to 3 relevant results for query: 'Azure Files'"
+
+# Quality indicators:
+# - High filter ratio (12→3) = good precision
+# - Low filter ratio (5→4) = potential recall issues
+# - Zero results after filtering = thresholds too strict
+```
+
+#### Debugging Search Issues
+
+```bash
+# Enable debug logging for detailed search flow
+export ASPNETCORE_ENVIRONMENT=Development
+
+# Check search orchestration logs
+grep "SearchOrchestrationService" logs/app.log
+
+# Check relevance analyzer decisions
+grep "RelevanceAnalyzer" logs/app.log
+
+# Monitor vector search performance
+grep "vector search" logs/app.log
+```
+
 ## Troubleshooting
 
 ### Common Issues:
@@ -327,6 +649,89 @@ The system uses structured logging. In the development environment, debug logs f
 1. **Index Creation Failed**: Check Azure Search configuration and permissions
 2. **Embedding Generation Failed**: Check Azure OpenAI endpoint and deployment name
 3. **Authentication Failed**: Check API keys and endpoints
+4. **No Search Results Found**: See search-specific troubleshooting below
+5. **Poor Search Quality**: Adjust relevance thresholds or check content quality
+
+### Search-Specific Troubleshooting
+
+#### Problem: No results for short queries (e.g., "PDF", "Azure")
+**Solutions:**
+- Check if `SHORT_QUERY_THRESHOLD = 0.3` is too strict
+- Verify vector embeddings are being generated correctly
+- Ensure content actually contains the search terms
+- Check debug logs for filtering details
+
+#### Problem: Too many irrelevant results
+**Solutions:**
+- Increase relevance thresholds in `RelevanceAnalyzer`
+- Adjust `VECTOR_SCORE_WEIGHT` vs `TEXT_SCORE_WEIGHT` ratio
+- Reduce search multipliers to get fewer initial results
+- Enable stricter filtering for your content type
+
+#### Problem: Relevant content not found
+**Solutions:**
+- Decrease relevance thresholds (make filtering more lenient)
+- Check if stop words are filtering out important terms
+- Verify embeddings capture semantic meaning correctly
+- Review chunk size and overlap settings
+
+#### Problem: Poor answer quality from GPT-4o
+**Solutions:**
+- Increase `ANSWER_GENERATION_THRESHOLD` to 0.7 for higher quality sources
+- Reduce `MAX_SOURCES_FOR_ANSWER` to 3 for more focused context
+- Check source attribution in generated answers
+- Verify relevant sources are being passed to ChatService
+
+#### Problem: Slow search performance
+**Solutions:**
+- Reduce search multipliers (3x instead of 4x for short queries)
+- Implement result caching for common queries
+- Optimize Azure Search index configuration
+- Monitor embedding generation latency
+
+### Debug Search Flow
+
+To debug search issues, enable detailed logging and follow this process:
+
+```bash
+# 1. Check embedding generation
+curl -X POST "http://localhost:5151/search" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "test", "maxResults": 1, "includeAnswer": false}'
+
+# 2. Look for these log entries:
+# "Embedding generated for search query"
+# "Search results received: X for query: 'test'"
+# "Filtered X results to Y relevant results"
+
+# 3. If no results, check:
+grep "No text could be extracted" logs/app.log  # File processing issues
+grep "Error in hybrid search" logs/app.log      # Search service issues
+grep "Filtered.*to 0 relevant" logs/app.log     # Filtering too strict
+```
+
+### Search Quality Assessment
+
+Use these queries to test search quality:
+
+```bash
+# Test 1: Short, specific terms
+curl -X POST "http://localhost:5151/search" \
+  -d '{"query": "PDF", "maxResults": 3}'
+
+# Test 2: Medium complexity
+curl -X POST "http://localhost:5151/search" \
+  -d '{"query": "Azure Files configuration", "maxResults": 5}'
+
+# Test 3: Long, complex query
+curl -X POST "http://localhost:5151/search" \
+  -d '{"query": "How do I configure SMB file shares in Azure Files service?", "maxResults": 3}'
+
+# Expected behaviors:
+# - Test 1: Should find documents mentioning PDF
+# - Test 2: Should find Azure Files related content
+# - Test 3: Should provide comprehensive, relevant answers
+```
 
 ### Check logs:
 ```bash

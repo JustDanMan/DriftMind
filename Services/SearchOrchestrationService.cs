@@ -48,47 +48,67 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             
             _logger.LogInformation("Embedding generated for search query");
 
-            // 2. Perform hybrid search
+            // 2. Perform hybrid search with more results for filtering
+            var multiplier = request.Query.Length < 20 ? 4 : 3; // More results for short queries
             var searchResults = request.UseSemanticSearch 
-                ? await _searchService.HybridSearchAsync(request.Query, queryEmbedding, request.MaxResults, request.DocumentId)
-                : await _searchService.SearchAsync(request.Query, request.MaxResults);
+                ? await _searchService.HybridSearchAsync(request.Query, queryEmbedding, request.MaxResults * multiplier, request.DocumentId)
+                : await _searchService.SearchAsync(request.Query, Math.Min(request.MaxResults * 2, 50));
 
             var resultsList = searchResults.GetResults().ToList();
-            _logger.LogInformation("Search results received: {ResultCount}", resultsList.Count);
+            _logger.LogInformation("Search results received: {ResultCount} for query: '{Query}'", resultsList.Count, request.Query);
 
-            // 3. Convert to DTOs
+            // 3. Convert to DTOs with improved relevance scoring
             var results = new List<SearchResult>();
             foreach (var result in resultsList)
             {
+                var vectorScore = result.Score;
+                var combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
+                    result.Document.Content, 
+                    request.Query, 
+                    vectorScore);
+                    
+                var isRelevant = RelevanceAnalyzer.IsContentRelevant(
+                    result.Document.Content, 
+                    request.Query, 
+                    vectorScore);
+
                 results.Add(new SearchResult
                 {
                     Id = result.Document.Id,
                     Content = result.Document.Content,
                     DocumentId = result.Document.DocumentId,
                     ChunkIndex = result.Document.ChunkIndex,
-                    Score = result.Score ?? 0.0,
+                    Score = combinedScore,
+                    VectorScore = vectorScore,
                     Metadata = result.Document.Metadata,
-                    CreatedAt = result.Document.CreatedAt
+                    CreatedAt = result.Document.CreatedAt,
+                    IsRelevant = isRelevant,
+                    RelevanceScore = combinedScore
                 });
             }
+
+            // 4. Apply adaptive filtering based on query characteristics
+            var filteredResults = FilterResults(results, request);
+
+            _logger.LogInformation("Filtered {Original} results to {Relevant} relevant results for query: '{Query}'", 
+                results.Count, filteredResults.Count, request.Query);
 
             var response = new SearchResponse
             {
                 Query = request.Query,
-                Results = results,
+                Results = filteredResults,
                 Success = true,
-                TotalResults = resultsList.Count
+                TotalResults = filteredResults.Count
             };
 
-            // 4. Generate answer with GPT-4o if requested
-            if (request.IncludeAnswer && results.Any())
+            // 5. Generate answer with only relevant results
+            if (request.IncludeAnswer && filteredResults.Any())
             {
-                _logger.LogInformation("Generating answer with GPT-4o");
-                response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, results);
+                response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, filteredResults);
             }
-            else if (request.IncludeAnswer && !results.Any())
+            else if (request.IncludeAnswer && !filteredResults.Any())
             {
-                response.GeneratedAnswer = "No relevant information found for your query.";
+                response.GeneratedAnswer = "Es konnten keine relevanten Informationen zu Ihrer Frage gefunden werden. Bitte versuchen Sie eine andere Formulierung oder spezifischere Begriffe.";
             }
 
             _logger.LogInformation("Search completed successfully");
@@ -104,5 +124,38 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 Message = $"Error during search: {ex.Message}"
             };
         }
+    }
+
+    private List<SearchResult> FilterResults(List<SearchResult> results, SearchRequest request)
+    {
+        var queryLength = request.Query.Length;
+        var queryTermCount = request.Query.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+
+        // For very short queries, be more inclusive
+        if (queryLength < 15 || queryTermCount <= 2)
+        {
+            return results
+                .Where(r => r.Score > 0.2 || r.VectorScore > 0.5) // Even more lenient
+                .OrderByDescending(r => r.Score)
+                .Take(request.MaxResults)
+                .ToList();
+        }
+
+        // For medium queries, use lenient filtering
+        if (queryLength < 50 || queryTermCount <= 5)
+        {
+            return results
+                .Where(r => r.IsRelevant || r.Score > 0.3) // More lenient: IsRelevant OR Score
+                .OrderByDescending(r => r.Score)
+                .Take(request.MaxResults)
+                .ToList();
+        }
+
+        // For long/complex queries, still be reasonably lenient
+        return results
+            .Where(r => r.IsRelevant || r.Score > 0.4) // Changed from AND to OR, reduced threshold
+            .OrderByDescending(r => r.Score)
+            .Take(request.MaxResults)
+            .ToList();
     }
 }

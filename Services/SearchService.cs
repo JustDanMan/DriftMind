@@ -162,11 +162,11 @@ public class SearchService : ISearchService
             var embeddingArray = queryEmbedding.ToArray();
             var searchOptions = new SearchOptions
             {
-                Size = top,
+                Size = Math.Min(top * 3, 100), // Get more results for better filtering
                 IncludeTotalCount = true,
                 VectorSearch = new()
                 {
-                    Queries = { new VectorizedQuery(embeddingArray) { KNearestNeighborsCount = top, Fields = { "Embedding" } } }
+                    Queries = { new VectorizedQuery(embeddingArray) { KNearestNeighborsCount = Math.Min(top * 3, 100), Fields = { "Embedding" } } }
                 }
             };
 
@@ -175,6 +175,8 @@ public class SearchService : ISearchService
             {
                 searchOptions.Filter = $"DocumentId eq '{documentId}'";
             }
+
+            _logger.LogDebug("Performing hybrid search for query: {Query} with top: {Top}", query, top);
 
             // Hybrid Search: Combine text search and vector search
             return await _searchClient.SearchAsync<DocumentChunk>(query, searchOptions);

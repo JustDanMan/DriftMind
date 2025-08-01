@@ -25,7 +25,10 @@ public class SearchResult
     public string Content { get; set; } = string.Empty;
     public string DocumentId { get; set; } = string.Empty;
     public int ChunkIndex { get; set; }
-    public double Score { get; set; }
+    public double? Score { get; set; }
+    public double? VectorScore { get; set; } // Original vector similarity score
     public string? Metadata { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public bool IsRelevant { get; set; } = true;
+    public double RelevanceScore { get; set; }
 }
