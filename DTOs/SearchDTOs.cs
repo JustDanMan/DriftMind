@@ -38,4 +38,8 @@ public class SearchResult
     public string? OriginalFileName { get; set; }
     public string? ContentType { get; set; }
     public string? TextContentBlobPath { get; set; }
+    
+    // Download Information
+    public bool IsFileAvailable => !string.IsNullOrEmpty(BlobPath);
+    public DownloadInfo? Download { get; set; }
 }

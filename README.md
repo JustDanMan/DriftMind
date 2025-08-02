@@ -242,6 +242,131 @@ Alternative endpoint to delete documents using a JSON request body.
 
 ⚠️ **Warning**: Document deletion is permanent and cannot be undone.
 
+## Secure Download System
+
+The system includes a secure download mechanism that provides access to original files while preventing unauthorized downloads through direct URLs.
+
+### POST /download/token
+
+Generates a secure, time-limited download token for a document.
+
+**Request Body:**
+```json
+{
+  "documentId": "document-1",
+  "expirationMinutes": 15
+}
+```
+
+**Response:**
+```json
+{
+  "token": "eyJkb2N1bWVudElkI...[encrypted-token]...ABC123",
+  "documentId": "document-1",
+  "expiresAt": "2025-08-02T17:00:00Z",
+  "downloadUrl": "/download/file?token=eyJkb2N1bWVudElkI...",
+  "success": true
+}
+```
+
+**Parameters:**
+- `documentId` (required): The ID of the document to download
+- `expirationMinutes` (optional, default: 15, max: 60): Token validity period
+
+### GET /download/file
+
+Downloads a file using a secure token.
+
+**Query Parameters:**
+- `token` (required): The download token from the token generation endpoint
+
+**Response:** File download with appropriate Content-Type and filename
+
+**Error Responses:**
+- `400 Bad Request`: Missing or invalid token
+- `401 Unauthorized`: Invalid token signature or format
+- `410 Gone`: Token has expired
+- `500 Internal Server Error`: Download failed
+
+### Security Features
+
+#### Simple Token-Based Security
+1. **No Direct File URLs**: Files are never accessible via direct URLs
+2. **HMAC-SHA256 Signed Tokens**: Prevent token tampering and manipulation
+3. **Time-Limited Access**: Tokens expire automatically (default: 15 minutes, max: 60 minutes)
+4. **Document Validation**: Verifies document exists before allowing download
+5. **Audit Logging**: All download attempts are logged for security monitoring
+
+#### Token Security
+- **Encryption**: HMAC-SHA256 signature prevents token manipulation
+- **Short Expiration**: 15-minute default, 60-minute maximum
+- **Document-Specific**: Each token is valid for only one document
+- **Tamper-Proof**: Any modification invalidates the token
+
+#### Simple Architecture
+The system provides secure downloads without complex user authentication:
+- **API-Level Security**: Access control through your application layer
+- **Token-Based Downloads**: Temporary, secure download links
+- **Frontend Flexibility**: Authentication can be handled in your frontend/application layer
+- **Audit Trail**: Download activity logging for security monitoring
+
+#### Example Download Flow
+```bash
+# Step 1: Generate download token
+curl -X POST "http://localhost:8081/download/token" \
+  -H "Content-Type: application/json" \
+  -d '{"documentId": "doc-123", "expirationMinutes": 15}'
+
+# Response: {"token": "eyJ...", "downloadUrl": "/download/file?token=eyJ..."}
+
+# Step 2: Download file with token
+curl "http://localhost:8081/download/file?token=eyJ..." \
+  --output downloaded-file.pdf
+
+# Step 3: Token expires automatically after 15 minutes
+```
+
+#### Search Results with Download Links
+Search results now include download information for available files:
+
+```json
+{
+  "query": "Azure configuration",
+  "results": [
+    {
+      "id": "doc-123_0",
+      "content": "Azure configuration guide...",
+      "documentId": "doc-123",
+      "originalFileName": "azure-guide.pdf",
+      "isFileAvailable": true,
+      "download": {
+        "documentId": "doc-123",
+        "tokenEndpoint": "/download/token",
+        "fileName": "azure-guide.pdf",
+        "fileType": ".pdf",
+        "tokenExpirationMinutes": 15
+      }
+    }
+  ]
+}
+```
+
+#### Configuration
+Add to your `appsettings.json`:
+
+```json
+{
+  "DownloadSecurity": {
+    "TokenSecret": "CHANGE-THIS-IN-PRODUCTION-USE-STRONG-SECRET-KEY-32-CHARS-MIN",
+    "DefaultExpirationMinutes": 15,
+    "MaxExpirationMinutes": 60,
+    "EnableAuditLogging": true
+  }
+}
+```
+
+⚠️ **Security Notice**: In production, ensure `TokenSecret` is a strong, unique key. Authentication and authorization should be handled at the application/frontend level.
+
 ## Architecture
 
 ### Services

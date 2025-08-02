@@ -89,7 +89,16 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     BlobContainer = result.Document.BlobContainer,
                     OriginalFileName = result.Document.OriginalFileName,
                     ContentType = result.Document.ContentType,
-                    TextContentBlobPath = result.Document.TextContentBlobPath
+                    TextContentBlobPath = result.Document.TextContentBlobPath,
+                    // Add download information if file is available
+                    Download = !string.IsNullOrEmpty(result.Document.BlobPath) ? new DownloadInfo
+                    {
+                        DocumentId = result.Document.DocumentId,
+                        TokenEndpoint = $"/download/token",
+                        FileName = result.Document.OriginalFileName ?? "unknown",
+                        FileType = Path.GetExtension(result.Document.OriginalFileName ?? ""),
+                        TokenExpirationMinutes = 15
+                    } : null
                 });
             }
 

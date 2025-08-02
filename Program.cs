@@ -41,6 +41,7 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ISearchOrchestrationService, SearchOrchestrationService>();
 builder.Services.AddScoped<IDocumentManagementService, DocumentManagementService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
+builder.Services.AddScoped<IDownloadService, DownloadService>();
 
 // Configure URLs for production deployment
 builder.WebHost.UseUrls("http://0.0.0.0:8081");
@@ -263,5 +264,80 @@ app.MapPost("/documents/delete", async (DeleteDocumentRequest request, IDocument
 .WithOpenApi()
 .WithSummary("Deletes a document and all its chunks (POST)")
 .WithDescription("This endpoint deletes a document and all its associated chunks from Azure AI Search using a POST request with JSON body. The operation cannot be undone.");
+
+// Secure Download Endpoints
+app.MapPost("/download/token", async (GenerateDownloadTokenRequest request, IDownloadService downloadService) =>
+{
+    if (string.IsNullOrWhiteSpace(request.DocumentId))
+    {
+        return Results.BadRequest(new { error = "DocumentId is required" });
+    }
+    
+    if (request.ExpirationMinutes <= 0 || request.ExpirationMinutes > 60)
+    {
+        return Results.BadRequest(new { error = "ExpirationMinutes must be between 1 and 60" });
+    }
+    
+    var response = await downloadService.GenerateDownloadTokenAsync(
+        request.DocumentId, 
+        userId: null, // No user tracking needed
+        expiration: TimeSpan.FromMinutes(request.ExpirationMinutes));
+    
+    if (!response.Success)
+    {
+        if (response.ErrorMessage?.Contains("not found") == true)
+        {
+            return Results.NotFound(new { error = response.ErrorMessage });
+        }
+        return Results.Problem(response.ErrorMessage ?? "Failed to generate download token");
+    }
+    
+    return Results.Ok(response);
+})
+.WithName("GenerateDownloadToken")
+.WithOpenApi()
+.WithSummary("Generates a secure, time-limited download token for a document")
+.WithDescription("Creates a secure token that allows downloading a specific document. The token expires after the specified time and can only be used for the requested document.")
+.WithTags("Downloads");
+
+app.MapGet("/download/file", async (string token, IDownloadService downloadService) =>
+{
+    if (string.IsNullOrWhiteSpace(token))
+    {
+        return Results.BadRequest(new { error = "Download token is required" });
+    }
+    
+    // 1. Token validieren
+    var validation = await downloadService.ValidateDownloadTokenAsync(token);
+    if (!validation.IsValid)
+    {
+        if (validation.ErrorMessage?.Contains("expired") == true)
+        {
+            return Results.Problem(
+                title: "Token Expired",
+                detail: "The download token has expired. Please generate a new one.",
+                statusCode: 410); // Gone
+        }
+        
+        return Results.Unauthorized();
+    }
+    
+    // 2. Datei abrufen und ausliefern
+    var fileResult = await downloadService.GetFileForDownloadAsync(validation.DocumentId);
+    if (!fileResult.Success || fileResult.FileStream == null)
+    {
+        return Results.Problem(
+            title: "Download Failed", 
+            detail: fileResult.ErrorMessage ?? "File could not be retrieved",
+            statusCode: 500);
+    }
+    
+    return Results.File(fileResult.FileStream, fileResult.ContentType, fileResult.FileName);
+})
+.WithName("DownloadFileWithToken")
+.WithOpenApi()
+.WithSummary("Downloads a file using a secure token")
+.WithDescription("Downloads the file associated with the provided download token. The token must be valid and not expired.")
+.WithTags("Downloads");
 
 app.Run();
