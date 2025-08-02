@@ -300,15 +300,16 @@ app.MapPost("/download/token", async (GenerateDownloadTokenRequest request, IDow
 .WithDescription("Creates a secure token that allows downloading a specific document. The token expires after the specified time and can only be used for the requested document.")
 .WithTags("Downloads");
 
-app.MapGet("/download/file", async (string token, IDownloadService downloadService) =>
+// POST endpoint for secure file downloads using token in request body
+app.MapPost("/download/file", async (TokenDownloadRequest request, IDownloadService downloadService) =>
 {
-    if (string.IsNullOrWhiteSpace(token))
+    if (string.IsNullOrWhiteSpace(request.Token))
     {
         return Results.BadRequest(new { error = "Download token is required" });
     }
     
     // 1. Token validieren
-    var validation = await downloadService.ValidateDownloadTokenAsync(token);
+    var validation = await downloadService.ValidateDownloadTokenAsync(request.Token);
     if (!validation.IsValid)
     {
         if (validation.ErrorMessage?.Contains("expired") == true)
@@ -318,26 +319,32 @@ app.MapGet("/download/file", async (string token, IDownloadService downloadServi
                 detail: "The download token has expired. Please generate a new one.",
                 statusCode: 410); // Gone
         }
-        
-        return Results.Unauthorized();
-    }
-    
-    // 2. Datei abrufen und ausliefern
-    var fileResult = await downloadService.GetFileForDownloadAsync(validation.DocumentId);
-    if (!fileResult.Success || fileResult.FileStream == null)
-    {
         return Results.Problem(
-            title: "Download Failed", 
-            detail: fileResult.ErrorMessage ?? "File could not be retrieved",
-            statusCode: 500);
+            title: "Invalid Token",
+            detail: validation.ErrorMessage ?? "Invalid download token",
+            statusCode: 401); // Unauthorized
     }
     
-    return Results.File(fileResult.FileStream, fileResult.ContentType, fileResult.FileName);
+    // 2. Datei herunterladen
+    try
+    {
+        var fileResult = await downloadService.GetFileForDownloadAsync(validation.DocumentId);
+        if (!fileResult.Success || fileResult.FileStream == null)
+        {
+            return Results.NotFound(new { error = fileResult.ErrorMessage ?? "File not found" });
+        }
+        
+        return Results.File(fileResult.FileStream, fileResult.ContentType, fileResult.FileName);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Download failed: {ex.Message}");
+    }
 })
 .WithName("DownloadFileWithToken")
 .WithOpenApi()
 .WithSummary("Downloads a file using a secure token")
-.WithDescription("Downloads the file associated with the provided download token. The token must be valid and not expired.")
+.WithDescription("Downloads the file associated with the provided download token. The token must be valid and not expired. Token is provided in the request body for better security.")
 .WithTags("Downloads");
 
 app.Run();

@@ -1,6 +1,14 @@
 namespace DriftMind.DTOs;
 
 /// <summary>
+/// Request for downloading a file with token in body
+/// </summary>
+public class TokenDownloadRequest
+{
+    public string Token { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Response when generating a download token
 /// </summary>
 public class DownloadTokenResponse

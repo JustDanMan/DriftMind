@@ -83,7 +83,7 @@ public class DownloadService : IDownloadService
                 Token = token,
                 DocumentId = documentId,
                 ExpiresAt = expiresAt,
-                DownloadUrl = $"/download/file?token={token}",
+                DownloadUrl = "/download/file", // POST endpoint only
                 Success = true
             };
         }
@@ -103,6 +103,9 @@ public class DownloadService : IDownloadService
     {
         try
         {
+            _logger.LogDebug("Validating download token: {TokenPreview}", 
+                string.IsNullOrEmpty(token) ? "null/empty" : $"{token.Substring(0, Math.Min(20, token.Length))}...");
+            
             // 1. Token entschlüsseln und validieren
             var tokenData = ValidateSecureToken(token);
             if (tokenData == null)
@@ -291,6 +294,8 @@ public class DownloadService : IDownloadService
             var tokenJson = JsonSerializer.Serialize(tokenData);
             var tokenBytes = Encoding.UTF8.GetBytes(tokenJson);
             
+            _logger.LogDebug("Generated token JSON: {TokenJson}", tokenJson);
+            
             // 2. Token Base64-kodieren
             var tokenBase64 = Convert.ToBase64String(tokenBytes);
             
@@ -301,6 +306,9 @@ public class DownloadService : IDownloadService
             
             // 4. Token + Signatur kombinieren
             var secureToken = $"{tokenBase64}.{signature}";
+            
+            _logger.LogDebug("Generated secure token: {TokenPreview}... (length: {Length})", 
+                secureToken.Substring(0, Math.Min(50, secureToken.Length)), secureToken.Length);
             
             return secureToken;
         }
@@ -318,15 +326,29 @@ public class DownloadService : IDownloadService
     {
         try
         {
+            if (string.IsNullOrEmpty(token))
+            {
+                _logger.LogWarning("Token is null or empty");
+                return null;
+            }
+            
+            _logger.LogDebug("ValidateSecureToken called with token length: {Length}", token.Length);
+            
             // 1. Token und Signatur trennen
             var parts = token.Split('.');
+            _logger.LogDebug("Token split into {Parts} parts", parts.Length);
+            
             if (parts.Length != 2)
             {
+                _logger.LogWarning("Token has {Parts} parts, expected 2", parts.Length);
                 return null;
             }
             
             var tokenBase64 = parts[0];
             var signature = parts[1];
+            
+            _logger.LogDebug("Token Base64 length: {TokenLength}, Signature length: {SignatureLength}", 
+                tokenBase64.Length, signature.Length);
             
             // 2. Token dekodieren
             var tokenBytes = Convert.FromBase64String(tokenBase64);
@@ -335,6 +357,9 @@ public class DownloadService : IDownloadService
             using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_tokenSecret));
             var expectedSignatureBytes = hmac.ComputeHash(tokenBytes);
             var expectedSignature = Convert.ToBase64String(expectedSignatureBytes);
+            
+            _logger.LogDebug("Expected signature: {Expected}, Received signature: {Received}", 
+                expectedSignature, signature);
             
             if (!string.Equals(signature, expectedSignature, StringComparison.Ordinal))
             {

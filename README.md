@@ -264,7 +264,7 @@ Generates a secure, time-limited download token for a document.
   "token": "eyJkb2N1bWVudElkI...[encrypted-token]...ABC123",
   "documentId": "document-1",
   "expiresAt": "2025-08-02T17:00:00Z",
-  "downloadUrl": "/download/file?token=eyJkb2N1bWVudElkI...",
+  "downloadUrl": "/download/file",
   "success": true
 }
 ```
@@ -273,12 +273,16 @@ Generates a secure, time-limited download token for a document.
 - `documentId` (required): The ID of the document to download
 - `expirationMinutes` (optional, default: 15, max: 60): Token validity period
 
-### GET /download/file
+### POST /download/file
 
-Downloads a file using a secure token.
+Downloads a file using a secure token provided in the request body.
 
-**Query Parameters:**
-- `token` (required): The download token from the token generation endpoint
+**Request Body:**
+```json
+{
+  "token": "eyJkb2N1bWVudElkI...[encrypted-token]...ABC123"
+}
+```
 
 **Response:** File download with appropriate Content-Type and filename
 
@@ -317,10 +321,12 @@ curl -X POST "http://localhost:8081/download/token" \
   -H "Content-Type: application/json" \
   -d '{"documentId": "doc-123", "expirationMinutes": 15}'
 
-# Response: {"token": "eyJ...", "downloadUrl": "/download/file?token=eyJ..."}
+# Response: {"token": "eyJ...", "downloadUrl": "/download/file"}
 
-# Step 2: Download file with token
-curl "http://localhost:8081/download/file?token=eyJ..." \
+# Step 2: Download file with token in request body (POST only)
+curl -X POST "http://localhost:8081/download/file" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "eyJ..."}' \
   --output downloaded-file.pdf
 
 # Step 3: Token expires automatically after 15 minutes
