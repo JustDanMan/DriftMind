@@ -396,6 +396,7 @@ The system applies different filtering strategies based on query characteristics
 #### Source Filtering for GPT-4o
 - **Minimum Score**: Configurable via `ChatService:MinScoreForAnswer` (default: 0.3)
 - **Maximum Sources**: Configurable via `ChatService:MaxSourcesForAnswer` (default: 10 in development, 8 in production)
+- **Source Diversification**: Maximum 1 chunk per document to ensure source variety (10 different documents instead of 10 chunks from 1 document)
 - **Fallback Strategy**: Uses all IsRelevant=true results if none meet score threshold
 - **Fallback Messages**: Clear communication when sources aren't relevant
 - **Source Attribution**: Each answer includes source references with scores
@@ -404,6 +405,35 @@ The system applies different filtering strategies based on query characteristics
 #### Answer Quality Controls
 ```
 "According to Source 1 (Score: 0.82, Document: azure-guide.pdf): ..."
+```
+
+#### Source Diversification Strategy
+
+The system implements intelligent source diversification to maximize information variety:
+
+```csharp
+// Example: From 50 search results across 8 documents
+// Before diversification: Could select 10 chunks all from Document A
+// After diversification: Selects best chunk from each of 8 different documents
+
+var diversifiedSources = searchResults
+    .GroupBy(r => r.DocumentId)                           // Group by document
+    .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
+    .OrderByDescending(r => r.Score)                      // Order by relevance
+    .Take(maxSources)                                     // Take top N documents
+    .ToList();
+```
+
+**Benefits:**
+- **Broader Coverage**: Information from multiple documents instead of deep diving into one
+- **Balanced Perspective**: Prevents over-representation of a single source
+- **Efficient Context Usage**: Complete files are loaded anyway, so chunk diversity is more valuable than chunk quantity
+- **Better Answers**: GPT-4o receives varied perspectives from different sources
+
+**Logging Example:**
+```
+info: Using 8 chunks from 8 different documents for answer generation
+debug: Source distribution: doc-123...(1), pdf-456...(1), guide-789...(1)
 ```
 
 ### Performance Optimizations
@@ -415,8 +445,9 @@ The system applies different filtering strategies based on query characteristics
 
 #### Memory Efficiency
 - **Streaming Results**: Processes search results as they arrive
-- **Chunk Limits**: Maximum 5 sources for answer generation
+- **Diversified Source Limits**: Configurable maximum sources per answer (default: 10) with 1 chunk per document
 - **Context Truncation**: Prevents token limit issues
+- **Smart File Loading**: Complete files loaded for context, chunks used for source attribution
 
 ### Search Quality Metrics
 

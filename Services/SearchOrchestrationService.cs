@@ -99,20 +99,30 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             _logger.LogInformation("Filtered {Original} results to {Relevant} relevant results for query: '{Query}'", 
                 results.Count, filteredResults.Count, request.Query);
 
+            // 5. Apply source diversification (max 1 chunk per document)
+            var diversifiedResults = filteredResults
+                .GroupBy(r => r.DocumentId)
+                .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
+                .OrderByDescending(r => r.Score)
+                .ToList();
+
+            _logger.LogInformation("Diversified {Original} chunks to {Diversified} chunks from {Documents} different documents", 
+                filteredResults.Count, diversifiedResults.Count, diversifiedResults.Select(r => r.DocumentId).Distinct().Count());
+
             var response = new SearchResponse
             {
                 Query = request.Query,
-                Results = filteredResults,
+                Results = diversifiedResults,
                 Success = true,
-                TotalResults = filteredResults.Count
+                TotalResults = diversifiedResults.Count
             };
 
-            // 5. Generate answer with only relevant results
-            if (request.IncludeAnswer && filteredResults.Any())
+            // 6. Generate answer with diversified results
+            if (request.IncludeAnswer && diversifiedResults.Any())
             {
-                response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, filteredResults);
+                response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, diversifiedResults);
             }
-            else if (request.IncludeAnswer && !filteredResults.Any())
+            else if (request.IncludeAnswer && !diversifiedResults.Any())
             {
                 response.GeneratedAnswer = "Es konnten keine relevanten Informationen zu Ihrer Frage gefunden werden. Bitte versuchen Sie eine andere Formulierung oder spezifischere Begriffe.";
             }
