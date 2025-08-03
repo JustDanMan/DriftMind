@@ -13,6 +13,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add Memory Cache for performance optimizations
+builder.Services.AddMemoryCache(options =>
+{
+    options.SizeLimit = 1000;                    // Maximum 1000 cache entries
+    options.CompactionPercentage = 0.25;         // Remove 25% when limit reached
+    options.ExpirationScanFrequency = TimeSpan.FromMinutes(5); // Cleanup every 5 minutes
+});
+
 // Configure file upload options
 builder.Services.Configure<FileUploadOptions>(
     builder.Configuration.GetSection("FileUpload"));

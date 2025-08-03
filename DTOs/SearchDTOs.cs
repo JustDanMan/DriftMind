@@ -37,8 +37,6 @@ public class SearchResult
     public double? VectorScore { get; set; } // Original vector similarity score
     public string? Metadata { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
-    public bool IsRelevant { get; set; } = true;
-    public double RelevanceScore { get; set; }
     
     // Blob Storage Information
     public string? BlobPath { get; set; }

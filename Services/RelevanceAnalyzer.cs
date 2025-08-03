@@ -12,13 +12,9 @@ public static class RelevanceAnalyzer
         "wenn", "dass", "weil", "damit", "obwohl", "falls", "sofern",
         "nicht", "kein", "keine", "keiner", "keinem", "keines",
         "sehr", "mehr", "auch", "nur", "noch", "schon", "bereits", "immer", "oft", "manchmal",
-        // Question words and modal particles
         "wo", "wohin", "woher", "wann", "warum", "weshalb", "wieso", "welche", "welcher", "welches", "welchen",
-        // Common verbs
         "macht", "machen", "tun", "gehen", "kommen", "sagen", "gibt", "geben",
-        // Modal particles and adverbs
         "mal", "denn", "halt", "eben", "etwa", "eigentlich", "wohl", "ganz", "recht", "ziemlich", "etwas", "eher",
-        // Articles and pronouns
         "alle", "alles", "jeder", "jede", "jedes", "diesem", "dieser", "dieses", "andere", "anderen", "anderer"
     };
     
@@ -29,21 +25,16 @@ public static class RelevanceAnalyzer
         "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "their", "our",
         "if", "that", "because", "when", "where", "why", "what", "which", "who", "whose", "this", "these", "that", "those",
         "not", "no", "yes", "very", "more", "also", "only", "just", "already", "always", "often", "sometimes", "never", "here", "there", "now", "then",
-        // Common verbs
         "make", "makes", "made", "go", "goes", "went", "come", "comes", "came",
         "say", "says", "said", "tell", "tells", "told", 
-        // Modal auxiliaries
         "may", "might", "shall", "ought",
-        // Determiners and quantifiers
         "all", "any", "some", "many", "few", "several", "each", "every", "other", "another", "such", "same",
-        // Question words extensions
         "whom", "whenever", "wherever"
     };
 
     // Combined synonyms for German and English terms
     private static readonly Dictionary<string, List<string>> MultiLanguageSynonyms = new()
     {
-        // German terms with English equivalents
         { "betreiben", new List<string> { "verwenden", "nutzen", "einsetzen", "laufen", "abgelegt", "eingebunden", "hosten", "ausführen", "verwalten", "operate", "run", "host", "deploy", "manage" } },
         { "datenbank", new List<string> { "database", "db", "sqlite", "daten", "speicher", "datenspeicher", "data", "storage", "repository" } },
         { "azure", new List<string> { "microsoft", "cloud", "files", "webapp", "storage", "service", "platform", "infrastructure" } },
@@ -53,8 +44,6 @@ public static class RelevanceAnalyzer
         { "volume", new List<string> { "laufwerk", "mount", "einbindung", "speicherplatz", "drive", "disk", "storage", "filesystem" } },
         { "option", new List<string> { "parameter", "einstellung", "konfiguration", "flag", "setting", "config", "argument", "switch" } },
         { "nobrl", new List<string> { "byte-range", "locking", "sperren", "lock", "unlock", "disable", "flag" } },
-        
-        // English terms with German equivalents
         { "operate", new List<string> { "betreiben", "run", "host", "deploy", "manage", "verwenden", "nutzen", "ausführen" } },
         { "database", new List<string> { "datenbank", "db", "sqlite", "data", "storage", "repository", "speicher", "datenspeicher" } },
         { "configure", new List<string> { "konfigurieren", "setup", "config", "setting", "install", "einrichten", "einstellung", "konfiguration" } },
@@ -67,36 +56,33 @@ public static class RelevanceAnalyzer
         { "deploy", new List<string> { "deployen", "install", "setup", "configure", "host", "einrichten", "installieren" } }
     };
 
-    public static bool IsContentRelevant(string content, string query, double? score = null)
+    public static double CalculateRelevanceScore(string content, string query, double? vectorScore = null)
     {
-        // If we have a high vector similarity score, trust it (reduced from 0.8 to 0.75)
-        if (score.HasValue && score.Value > 0.75)
-        {
-            return true;
-        }
-
         var queryTerms = ExtractMeaningfulTerms(query);
         var contentTerms = ExtractMeaningfulTerms(content);
         
         if (!queryTerms.Any())
         {
-            return score.HasValue && score.Value > 0.4; // Reduced threshold
+            return vectorScore ?? 0.0;
         }
 
-        // Count exact matches, partial matches, and synonym matches
+        // Enhanced text relevance calculation with synonym support
         var exactMatches = CountExactMatches(queryTerms, contentTerms);
         var partialMatches = CountPartialMatches(queryTerms, content);
         var synonymMatches = CountSynonymMatches(queryTerms, contentTerms);
-
-        // Calculate relevance with enhanced scoring
-        var totalRelevance = (exactMatches * 3.0) + (partialMatches * 2.0) + (synonymMatches * 1.5);
-        var maxPossibleRelevance = queryTerms.Count * 3.0;
-        var relevanceRatio = totalRelevance / maxPossibleRelevance;
-
-        // Adaptive threshold based on content and query characteristics (more lenient)
-        var threshold = CalculateAdaptiveThreshold(queryTerms.Count, content.Length, query.Length);
         
-        return relevanceRatio >= threshold;
+        // Calculate weighted text relevance
+        var totalMatches = (exactMatches * 2.0) + (partialMatches * 1.0) + (synonymMatches * 1.5);
+        var maxPossibleMatches = queryTerms.Count * 2.0;
+        var textRelevance = Math.Min(1.0, totalMatches / maxPossibleMatches);
+
+        // Combine vector score and text relevance
+        if (vectorScore.HasValue)
+        {
+            return (vectorScore.Value * 0.7) + (textRelevance * 0.3);
+        }
+
+        return textRelevance;
     }
 
     private static int CountExactMatches(List<string> queryTerms, List<string> contentTerms)
@@ -163,57 +149,5 @@ public static class RelevanceAnalyzer
             .Where(term => term.Length > 2 && !allStopWords.Contains(term))
             .Distinct()
             .ToList();
-    }
-
-    private static double CalculateAdaptiveThreshold(int queryTermCount, int contentLength, int queryLength)
-    {
-        // More lenient thresholds for German content
-        if (queryTermCount <= 2)
-        {
-            return 0.2; // Very lenient for short queries (was 0.3)
-        }
-
-        // For short content (< 200 chars), be more lenient
-        if (contentLength < 200)
-        {
-            return 0.15; // Very lenient for short content (was 0.25)
-        }
-
-        // For longer German queries, still be lenient
-        if (queryTermCount >= 6)
-        {
-            return 0.25; // More lenient for complex German queries (was 0.4)
-        }
-
-        return 0.2; // Generally more lenient default (was 0.35)
-    }
-
-    public static double CalculateRelevanceScore(string content, string query, double? vectorScore = null)
-    {
-        var queryTerms = ExtractMeaningfulTerms(query);
-        var contentTerms = ExtractMeaningfulTerms(content);
-        
-        if (!queryTerms.Any())
-        {
-            return vectorScore ?? 0.0;
-        }
-
-        // Enhanced text relevance calculation with synonym support
-        var exactMatches = CountExactMatches(queryTerms, contentTerms);
-        var partialMatches = CountPartialMatches(queryTerms, content);
-        var synonymMatches = CountSynonymMatches(queryTerms, contentTerms);
-        
-        // Calculate weighted text relevance
-        var totalMatches = (exactMatches * 2.0) + (partialMatches * 1.0) + (synonymMatches * 1.5);
-        var maxPossibleMatches = queryTerms.Count * 2.0;
-        var textRelevance = Math.Min(1.0, totalMatches / maxPossibleMatches);
-
-        // Combine vector score and text relevance
-        if (vectorScore.HasValue)
-        {
-            return (vectorScore.Value * 0.7) + (textRelevance * 0.3);
-        }
-
-        return textRelevance;
     }
 }

@@ -18,6 +18,7 @@ public interface ISearchService
     Task<List<DocumentChunk>> GetDocumentChunksAsync(string documentId);
     Task<Dictionary<string, List<DocumentChunk>>> GetAllDocumentsAsync(int maxResults = 50, int skip = 0);
     Task<bool> DeleteDocumentAsync(string documentId);
+    Task<List<DocumentChunk>> GetChunk0sForDocumentsAsync(List<string> documentIds);
 }
 
 public class SearchService : ISearchService
@@ -437,6 +438,54 @@ public class SearchService : ISearchService
         {
             _logger.LogError(ex, "Error deleting document: {DocumentId}", documentId);
             return false;
+        }
+    }
+
+    public async Task<List<DocumentChunk>> GetChunk0sForDocumentsAsync(List<string> documentIds)
+    {
+        if (!documentIds.Any())
+        {
+            return new List<DocumentChunk>();
+        }
+
+        try
+        {
+            _logger.LogDebug("Bulk loading metadata for {DocumentCount} documents", documentIds.Count);
+
+            // Create filter for all DocumentIDs with ChunkIndex = 0
+            var filterConditions = documentIds.Select(id => 
+                $"(DocumentId eq '{id}' and ChunkIndex eq 0)");
+            var filter = string.Join(" or ", filterConditions);
+
+            // Create search options for bulk metadata retrieval
+            var searchOptions = new SearchOptions
+            {
+                Filter = filter,
+                Size = documentIds.Count,
+                Select = { 
+                    "Id", "DocumentId", "OriginalFileName", "ContentType", "FileSizeBytes", 
+                    "BlobPath", "BlobContainer", "TextContentBlobPath", "CreatedAt", "Metadata"
+                }
+            };
+
+            _logger.LogDebug("Executing bulk metadata query with filter: {Filter}", filter);
+
+            var response = await _searchClient.SearchAsync<DocumentChunk>("*", searchOptions);
+            var results = response.Value.GetResults()
+                .Select(r => r.Document)
+                .ToList();
+
+            _logger.LogInformation("Bulk loaded metadata for {Found}/{Requested} documents", 
+                results.Count, documentIds.Count);
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error bulk loading metadata for {DocumentCount} documents", documentIds.Count);
+            
+            // Fallback: Return empty list (SearchOrchestrationService will handle missing metadata)
+            return new List<DocumentChunk>();
         }
     }
 }
