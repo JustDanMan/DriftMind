@@ -15,63 +15,26 @@ updates:
     labels:
       - "dependencies"
       - "dotnet"
-      - "net8"
     target-branch: "main"
-    # Only allow compatible .NET 8 versions
+    # Block major version updates (e.g., .NET 8 → 9)
     ignore:
       - dependency-name: "Microsoft.*"
-        versions: ["< 8.0.0"]
+        update-types: ["version-update:semver-major"]
       - dependency-name: "System.*"
-        versions: ["< 8.0.0"]
+        update-types: ["version-update:semver-major"]
     groups:
-      # Group Azure SDK updates together
-      azure-sdk:
-        patterns:
-          - "Azure.*"
-          - "Microsoft.Azure.*"
-        update-types:
-          - "minor"
-          - "patch"
-      # Group OpenAI related packages
-      openai:
+      # Group Azure services together (OpenAI, Search, Storage)
+      azure-services:
         patterns:
           - "Azure.AI.OpenAI"
-          - "OpenAI"
+          - "Azure.Search.Documents"
+          - "Azure.Storage.Blobs"
+          - "Azure.Storage.*"
+          - "Azure.AI.*"
         update-types:
           - "minor"
           - "patch"
-      # Group ASP.NET Core 8 packages
-      aspnetcore:
-        patterns:
-          - "Microsoft.AspNetCore.*"
-        update-types:
-          - "patch"
-      # Group Microsoft extensions
-      microsoft-extensions:
-        patterns:
-          - "Microsoft.Extensions.*"
-        update-types:
-          - "minor"
-          - "patch"
-      # Group Entity Framework Core 8
-      entity-framework:
-        patterns:
-          - "Microsoft.EntityFrameworkCore*"
-        update-types:
-          - "minor"
-          - "patch"
-      # Group testing frameworks
-      testing:
-        patterns:
-          - "Microsoft.NET.Test.Sdk"
-          - "xunit*"
-          - "NUnit*"
-          - "Moq"
-          - "FluentAssertions"
-        update-types:
-          - "minor"
-          - "patch"
-      # Group document processing libraries
+      # Group document processing libraries (OpenXml, iText7)
       document-processing:
         patterns:
           - "DocumentFormat.OpenXml"
@@ -80,11 +43,29 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # Group Swagger/OpenAPI
-      swagger:
+      # Group ASP.NET Core 8 and API packages
+      aspnetcore-api:
         patterns:
+          - "Microsoft.AspNetCore.*"
+          - "Swashbuckle.AspNetCore"
           - "Swashbuckle.*"
-          - "Microsoft.AspNetCore.OpenApi"
+        update-types:
+          - "patch"
+      # Group Microsoft extensions (if added later)
+      microsoft-extensions:
+        patterns:
+          - "Microsoft.Extensions.*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group testing frameworks (if added later)
+      testing:
+        patterns:
+          - "Microsoft.NET.Test.Sdk"
+          - "xunit*"
+          - "NUnit*"
+          - "Moq"
+          - "FluentAssertions"
         update-types:
           - "minor"
           - "patch"
@@ -104,10 +85,9 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
-      - "ci/cd"
     target-branch: "main"
 
-  # Docker dependencies (.NET 8 runtime)
+  # Docker dependencies (.NET 8 runtime only)
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -122,5 +102,13 @@ updates:
     labels:
       - "dependencies"
       - "docker"
-      - "net8"
     target-branch: "main"
+    groups:
+      # Group .NET Docker images
+      dotnet-runtime:
+        patterns:
+          - "mcr.microsoft.com/dotnet/aspnet"
+          - "mcr.microsoft.com/dotnet/sdk"
+        update-types:
+          - "minor"
+          - "patch"
