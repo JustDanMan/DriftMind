@@ -42,50 +42,11 @@ public class ChatService : IChatService
                 return "I couldn't find any relevant information to answer your question.";
             }
 
-            // Get configuration values
-            var maxSources = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
-            var minScore = _configuration.GetValue<double>("ChatService:MinScoreForAnswer", 0.3);
+            _logger.LogDebug("Using {ResultCount} pre-filtered and limited results for answer generation", searchResults.Count);
 
-            _logger.LogDebug("Using ChatService configuration: MaxSources={MaxSources}, MinScore={MinScore}", 
-                maxSources, minScore);
-
-            // Filter and prioritize results with diversification (max 1 chunk per document)
-            var candidateResults = searchResults
-                .Where(r => r.IsRelevant && (r.Score ?? 0) > minScore)
-                .OrderByDescending(r => r.Score)
-                .ToList();
-
-            // Diversify: Select best chunk per document (max 1 per DocumentId)
-            var relevantResults = candidateResults
-                .GroupBy(r => r.DocumentId)
-                .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
-                .OrderByDescending(r => r.Score)
-                .Take(maxSources)
-                .ToList();
-
-            _logger.LogDebug("Diversification: {CandidateCount} candidates → {GroupCount} documents → {FinalCount} selected sources", 
-                candidateResults.Count, 
-                candidateResults.GroupBy(r => r.DocumentId).Count(), 
-                relevantResults.Count);
-
-            // If no results meet the strict criteria, use diversified results from all relevant
-            if (!relevantResults.Any())
-            {
-                var fallbackCandidates = searchResults
-                    .Where(r => r.IsRelevant)
-                    .OrderByDescending(r => r.Score)
-                    .ToList();
-
-                relevantResults = fallbackCandidates
-                    .GroupBy(r => r.DocumentId)
-                    .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
-                    .OrderByDescending(r => r.Score)
-                    .Take(3) // Use top 3 documents if we lower the bar
-                    .ToList();
-
-                _logger.LogDebug("Fallback diversification: {FallbackCount} candidates → {FallbackFinal} selected sources", 
-                    fallbackCandidates.Count, relevantResults.Count);
-            }
+            // Use all the already filtered, diversified and limited results from SearchOrchestrationService
+            // No additional filtering or limiting to ensure consistency between AI input and displayed sources
+            var relevantResults = searchResults.ToList();
 
             if (!relevantResults.Any())
             {
@@ -94,7 +55,7 @@ public class ChatService : IChatService
                 return "Es konnten keine ausreichend relevanten Informationen gefunden werden, um Ihre Frage zu beantworten. Bitte versuchen Sie eine andere Formulierung oder spezifischere Begriffe.";
             }
 
-            // Log source diversity information
+            // Log source information
             var uniqueDocuments = relevantResults.Select(r => r.DocumentId).Distinct().Count();
             var documentCounts = relevantResults.GroupBy(r => r.DocumentId)
                 .Select(g => new { DocumentId = g.Key, Count = g.Count() })
@@ -144,50 +105,11 @@ public class ChatService : IChatService
                 return "I couldn't find any relevant information to answer your question.";
             }
 
-            // Get configuration values
-            var maxSources = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
-            var minScore = _configuration.GetValue<double>("ChatService:MinScoreForAnswer", 0.3);
+            _logger.LogDebug("Using {ResultCount} pre-filtered and limited results for answer generation with history", searchResults.Count);
 
-            _logger.LogDebug("Using ChatService configuration with history: MaxSources={MaxSources}, MinScore={MinScore}", 
-                maxSources, minScore);
-
-            // Filter and prioritize results with diversification (max 1 chunk per document)
-            var candidateResults = searchResults
-                .Where(r => r.IsRelevant && (r.Score ?? 0) > minScore)
-                .OrderByDescending(r => r.Score)
-                .ToList();
-
-            // Diversify: Select best chunk per document (max 1 per DocumentId)
-            var relevantResults = candidateResults
-                .GroupBy(r => r.DocumentId)
-                .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
-                .OrderByDescending(r => r.Score)
-                .Take(maxSources)
-                .ToList();
-
-            _logger.LogDebug("Diversification with history: {CandidateCount} candidates → {GroupCount} documents → {FinalCount} selected sources", 
-                candidateResults.Count, 
-                candidateResults.GroupBy(r => r.DocumentId).Count(), 
-                relevantResults.Count);
-
-            // If no results meet the strict criteria, use diversified results from all relevant
-            if (!relevantResults.Any())
-            {
-                var fallbackCandidates = searchResults
-                    .Where(r => r.IsRelevant)
-                    .OrderByDescending(r => r.Score)
-                    .ToList();
-
-                relevantResults = fallbackCandidates
-                    .GroupBy(r => r.DocumentId)
-                    .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
-                    .OrderByDescending(r => r.Score)
-                    .Take(3) // Use top 3 documents if we lower the bar
-                    .ToList();
-
-                _logger.LogDebug("Fallback diversification with history: {FallbackCount} candidates → {FallbackFinal} selected sources", 
-                    fallbackCandidates.Count, relevantResults.Count);
-            }
+            // Use all the already filtered, diversified and limited results from SearchOrchestrationService
+            // No additional filtering or limiting to ensure consistency between AI input and displayed sources
+            var relevantResults = searchResults.ToList();
 
             if (!relevantResults.Any())
             {
@@ -203,7 +125,7 @@ public class ChatService : IChatService
                 return "Es konnten keine ausreichend relevanten Informationen gefunden werden, um Ihre Frage zu beantworten. Bitte versuchen Sie eine andere Formulierung oder spezifischere Begriffe.";
             }
 
-            // Log source diversity information
+            // Log source information
             var uniqueDocuments = relevantResults.Select(r => r.DocumentId).Distinct().Count();
             var documentCounts = relevantResults.GroupBy(r => r.DocumentId)
                 .Select(g => new { DocumentId = g.Key, Count = g.Count() })

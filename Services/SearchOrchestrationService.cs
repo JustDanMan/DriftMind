@@ -14,17 +14,20 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     private readonly IEmbeddingService _embeddingService;
     private readonly IChatService _chatService;
     private readonly ILogger<SearchOrchestrationService> _logger;
+    private readonly IConfiguration _configuration;
 
     public SearchOrchestrationService(
         ISearchService searchService,
         IEmbeddingService embeddingService,
         IChatService chatService,
-        ILogger<SearchOrchestrationService> logger)
+        ILogger<SearchOrchestrationService> logger,
+        IConfiguration configuration)
     {
         _searchService = searchService;
         _embeddingService = embeddingService;
         _chatService = chatService;
         _logger = logger;
+        _configuration = configuration;
     }
 
     public async Task<SearchResponse> SearchAsync(SearchRequest request)
@@ -108,15 +111,17 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             _logger.LogInformation("Filtered {Original} results to {Relevant} relevant results for query: '{Query}'", 
                 results.Count, filteredResults.Count, request.Query);
 
-            // 5. Apply source diversification (max 1 chunk per document)
+            // 5. Apply source diversification (max 1 chunk per document) and limit to MaxSourcesForAnswer
+            var maxSources = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
             var diversifiedResults = filteredResults
                 .GroupBy(r => r.DocumentId)
                 .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
                 .OrderByDescending(r => r.Score)
+                .Take(Math.Min(request.MaxResults, maxSources)) // Limit by both MaxResults and MaxSourcesForAnswer
                 .ToList();
 
-            _logger.LogInformation("Diversified {Original} chunks to {Diversified} chunks from {Documents} different documents", 
-                filteredResults.Count, diversifiedResults.Count, diversifiedResults.Select(r => r.DocumentId).Distinct().Count());
+            _logger.LogInformation("Diversified {Original} chunks to {Diversified} chunks from {Documents} different documents (limited to {MaxSources} sources)", 
+                filteredResults.Count, diversifiedResults.Count, diversifiedResults.Select(r => r.DocumentId).Distinct().Count(), maxSources);
 
             var response = new SearchResponse
             {
@@ -173,30 +178,33 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     {
         var queryLength = request.Query.Length;
         var queryTermCount = request.Query.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        
+        // Get configurable minimum score
+        var minScore = _configuration.GetValue<double>("ChatService:MinScoreForAnswer", 0.3);
 
         // For very short queries, be more inclusive
         if (queryLength < 15 || queryTermCount <= 2)
         {
             return results
-                .Where(r => r.Score > 0.2 || r.VectorScore > 0.5) // Even more lenient
+                .Where(r => r.Score > (minScore * 0.67) || r.VectorScore > 0.5) // Even more lenient (2/3 of minScore)
                 .OrderByDescending(r => r.Score)
                 .Take(request.MaxResults)
                 .ToList();
         }
 
-        // For medium queries, use lenient filtering
+        // For medium queries, use standard filtering
         if (queryLength < 50 || queryTermCount <= 5)
         {
             return results
-                .Where(r => r.IsRelevant || r.Score > 0.3) // More lenient: IsRelevant OR Score
+                .Where(r => r.IsRelevant || r.Score > minScore) // Use configurable minScore
                 .OrderByDescending(r => r.Score)
                 .Take(request.MaxResults)
                 .ToList();
         }
 
-        // For long/complex queries, still be reasonably lenient
+        // For long/complex queries, use slightly higher threshold
         return results
-            .Where(r => r.IsRelevant || r.Score > 0.4) // Changed from AND to OR, reduced threshold
+            .Where(r => r.IsRelevant || r.Score > (minScore * 1.33)) // 1/3 higher than minScore
             .OrderByDescending(r => r.Score)
             .Take(request.MaxResults)
             .ToList();
