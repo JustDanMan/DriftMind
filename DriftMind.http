@@ -235,3 +235,166 @@ Content-Type: application/json
 DELETE {{DriftMind_HostAddress}}/documents/non-existent-document
 
 ###
+
+# ============================================
+# CHAT HISTORY INTEGRATION EXAMPLES
+# ============================================
+
+# Standard Search Request (without Chat History)
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "What is Artificial Intelligence?",
+  "maxResults": 5,
+  "useSemanticSearch": true,
+  "includeAnswer": true
+}
+
+###
+
+# Search Request with Chat History
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "Can you tell me more about that?",
+  "maxResults": 5,
+  "useSemanticSearch": true,
+  "includeAnswer": true,
+  "chatHistory": [
+    {
+      "role": "user",
+      "content": "What is Artificial Intelligence?",
+      "timestamp": "2025-08-03T10:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Artificial Intelligence (AI) is a field of computer science that deals with developing computer systems capable of performing tasks that typically require human intelligence.",
+      "timestamp": "2025-08-03T10:00:30Z"
+    }
+  ]
+}
+
+###
+
+# Search Request with Extended Chat History
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "How does that work in practice?",
+  "maxResults": 5,
+  "useSemanticSearch": true,
+  "includeAnswer": true,
+  "chatHistory": [
+    {
+      "role": "user",
+      "content": "What is Machine Learning?",
+      "timestamp": "2025-08-03T09:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Machine Learning is a subset of AI where algorithms learn from data and can make predictions.",
+      "timestamp": "2025-08-03T09:00:30Z"
+    },
+    {
+      "role": "user",
+      "content": "What types are there?",
+      "timestamp": "2025-08-03T09:01:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "There are mainly three types: Supervised Learning, Unsupervised Learning, and Reinforcement Learning.",
+      "timestamp": "2025-08-03T09:01:30Z"
+    }
+  ]
+}
+
+###
+
+# Search Request with Chat History but no Document Matches
+# (Tests fallback to pure Chat History answer)
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "What was the first topic we discussed again?",
+  "maxResults": 5,
+  "useSemanticSearch": true,
+  "includeAnswer": true,
+  "chatHistory": [
+    {
+      "role": "user",
+      "content": "Tell me about cooking recipes",
+      "timestamp": "2025-08-03T08:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Cooking recipes are instructions for preparing dishes. They contain ingredient lists and preparation steps.",
+      "timestamp": "2025-08-03T08:00:30Z"
+    },
+    {
+      "role": "user",
+      "content": "Are there different types of recipes?",
+      "timestamp": "2025-08-03T08:01:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, there are main courses, appetizers, desserts, baking recipes and many other categories.",
+      "timestamp": "2025-08-03T08:01:30Z"
+    }
+  ]
+}
+
+###
+
+# Search Request without Answer Generation but with Chat History
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "Deep Learning algorithms",
+  "maxResults": 10,
+  "useSemanticSearch": true,
+  "includeAnswer": false,
+  "chatHistory": [
+    {
+      "role": "user",
+      "content": "What are Neural Networks?",
+      "timestamp": "2025-08-03T07:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Neural Networks are computational models inspired by biological neurons for Machine Learning.",
+      "timestamp": "2025-08-03T07:00:30Z"
+    }
+  ]
+}
+
+###
+
+# Follow-up Question Example (Context-dependent)
+POST {{DriftMind_HostAddress}}/search
+Content-Type: application/json
+
+{
+  "query": "Can you explain that more simply?",
+  "maxResults": 5,
+  "useSemanticSearch": true,
+  "includeAnswer": true,
+  "chatHistory": [
+    {
+      "role": "user",
+      "content": "What is backpropagation in neural networks?",
+      "timestamp": "2025-08-03T06:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Backpropagation is an algorithm used to train neural networks by calculating gradients of the loss function with respect to each weight by the chain rule, propagating the error backwards through the network.",
+      "timestamp": "2025-08-03T06:00:30Z"
+    }
+  ]
+}
+
+###

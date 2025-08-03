@@ -129,11 +129,29 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             // 6. Generate answer with diversified results
             if (request.IncludeAnswer && diversifiedResults.Any())
             {
-                response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, diversifiedResults);
+                // Use history-aware method if chat history is provided
+                if (request.ChatHistory?.Any() == true)
+                {
+                    response.GeneratedAnswer = await _chatService.GenerateAnswerWithHistoryAsync(
+                        request.Query, diversifiedResults, request.ChatHistory);
+                }
+                else
+                {
+                    response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, diversifiedResults);
+                }
             }
             else if (request.IncludeAnswer && !diversifiedResults.Any())
             {
-                response.GeneratedAnswer = "Es konnten keine relevanten Informationen zu Ihrer Frage gefunden werden. Bitte versuchen Sie eine andere Formulierung oder spezifischere Begriffe.";
+                // If no search results but we have chat history, try to answer from history
+                if (request.ChatHistory?.Any() == true)
+                {
+                    response.GeneratedAnswer = await _chatService.GenerateAnswerWithHistoryAsync(
+                        request.Query, new List<SearchResult>(), request.ChatHistory);
+                }
+                else
+                {
+                    response.GeneratedAnswer = "Es konnten keine relevanten Informationen zu Ihrer Frage gefunden werden. Bitte versuchen Sie eine andere Formulierung oder spezifischere Begriffe.";
+                }
             }
 
             _logger.LogInformation("Search completed successfully");

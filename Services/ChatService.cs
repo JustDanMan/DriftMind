@@ -2,12 +2,14 @@ using Azure.AI.OpenAI;
 using OpenAI.Chat;
 using DriftMind.DTOs;
 using System.Text;
+using DTO = DriftMind.DTOs;
 
 namespace DriftMind.Services;
 
 public interface IChatService
 {
     Task<string> GenerateAnswerAsync(string query, List<SearchResult> searchResults);
+    Task<string> GenerateAnswerWithHistoryAsync(string query, List<SearchResult> searchResults, List<DTO.ChatMessage>? chatHistory);
 }
 
 public class ChatService : IChatService
@@ -108,7 +110,7 @@ public class ChatService : IChatService
             var systemPrompt = BuildEnhancedSystemPrompt();
             var userPrompt = BuildUserPrompt(query, context);
 
-            var messages = new List<ChatMessage>
+            var messages = new List<OpenAI.Chat.ChatMessage>
             {
                 new SystemChatMessage(systemPrompt),
                 new UserChatMessage(userPrompt)
@@ -125,6 +127,172 @@ public class ChatService : IChatService
         {
             _logger.LogError(ex, "Error generating answer for query: {Query}", query);
             return "I apologize, but I encountered an error while generating the answer. Please try again.";
+        }
+    }
+
+    public async Task<string> GenerateAnswerWithHistoryAsync(string query, List<SearchResult> searchResults, List<DTO.ChatMessage>? chatHistory)
+    {
+        try
+        {
+            if (!searchResults.Any())
+            {
+                // When no search results, check if we can answer from chat history
+                if (chatHistory?.Any() == true)
+                {
+                    return await GenerateAnswerFromHistoryOnlyAsync(query, chatHistory);
+                }
+                return "I couldn't find any relevant information to answer your question.";
+            }
+
+            // Get configuration values
+            var maxSources = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
+            var minScore = _configuration.GetValue<double>("ChatService:MinScoreForAnswer", 0.3);
+
+            _logger.LogDebug("Using ChatService configuration with history: MaxSources={MaxSources}, MinScore={MinScore}", 
+                maxSources, minScore);
+
+            // Filter and prioritize results with diversification (max 1 chunk per document)
+            var candidateResults = searchResults
+                .Where(r => r.IsRelevant && (r.Score ?? 0) > minScore)
+                .OrderByDescending(r => r.Score)
+                .ToList();
+
+            // Diversify: Select best chunk per document (max 1 per DocumentId)
+            var relevantResults = candidateResults
+                .GroupBy(r => r.DocumentId)
+                .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
+                .OrderByDescending(r => r.Score)
+                .Take(maxSources)
+                .ToList();
+
+            _logger.LogDebug("Diversification with history: {CandidateCount} candidates → {GroupCount} documents → {FinalCount} selected sources", 
+                candidateResults.Count, 
+                candidateResults.GroupBy(r => r.DocumentId).Count(), 
+                relevantResults.Count);
+
+            // If no results meet the strict criteria, use diversified results from all relevant
+            if (!relevantResults.Any())
+            {
+                var fallbackCandidates = searchResults
+                    .Where(r => r.IsRelevant)
+                    .OrderByDescending(r => r.Score)
+                    .ToList();
+
+                relevantResults = fallbackCandidates
+                    .GroupBy(r => r.DocumentId)
+                    .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
+                    .OrderByDescending(r => r.Score)
+                    .Take(3) // Use top 3 documents if we lower the bar
+                    .ToList();
+
+                _logger.LogDebug("Fallback diversification with history: {FallbackCount} candidates → {FallbackFinal} selected sources", 
+                    fallbackCandidates.Count, relevantResults.Count);
+            }
+
+            if (!relevantResults.Any())
+            {
+                _logger.LogWarning("No relevant results found for answer generation with history. Query: {Query}, Total results: {Count}", 
+                    query, searchResults.Count);
+                
+                // Fallback to history-only answer if available
+                if (chatHistory?.Any() == true)
+                {
+                    return await GenerateAnswerFromHistoryOnlyAsync(query, chatHistory);
+                }
+                
+                return "Es konnten keine ausreichend relevanten Informationen gefunden werden, um Ihre Frage zu beantworten. Bitte versuchen Sie eine andere Formulierung oder spezifischere Begriffe.";
+            }
+
+            // Log source diversity information
+            var uniqueDocuments = relevantResults.Select(r => r.DocumentId).Distinct().Count();
+            var documentCounts = relevantResults.GroupBy(r => r.DocumentId)
+                .Select(g => new { DocumentId = g.Key, Count = g.Count() })
+                .ToList();
+
+            _logger.LogInformation("Using {ChunkCount} chunks from {DocumentCount} different documents for answer generation with history. Query: {Query}", 
+                relevantResults.Count, uniqueDocuments, query);
+
+            _logger.LogDebug("Source distribution with history: {SourceDistribution}", 
+                string.Join(", ", documentCounts.Select(d => $"{d.DocumentId.Substring(0, Math.Min(8, d.DocumentId.Length))}...({d.Count})")));
+
+            var context = await BuildContextFromResultsAsync(relevantResults);
+            var systemPrompt = BuildEnhancedSystemPromptWithHistory();
+
+            // Build messages including chat history
+            var messages = new List<OpenAI.Chat.ChatMessage>();
+            messages.Add(new SystemChatMessage(systemPrompt));
+
+            // Add chat history if available
+            if (chatHistory?.Any() == true)
+            {
+                foreach (var historyMessage in chatHistory.TakeLast(10)) // Limit to last 10 messages to avoid token overflow
+                {
+                    if (historyMessage.Role.ToLower() == "user")
+                    {
+                        messages.Add(new UserChatMessage(historyMessage.Content));
+                    }
+                    else if (historyMessage.Role.ToLower() == "assistant")
+                    {
+                        messages.Add(new AssistantChatMessage(historyMessage.Content));
+                    }
+                }
+            }
+
+            // Add current query with context
+            var userPrompt = BuildUserPromptWithContext(query, context);
+            messages.Add(new UserChatMessage(userPrompt));
+
+            var response = await _chatClient.CompleteChatAsync(messages);
+            
+            _logger.LogInformation("Generated answer with history using {SourceCount} relevant sources for query: {Query}", 
+                relevantResults.Count, query);
+            
+            return response.Value.Content[0].Text;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating answer with history for query: {Query}", query);
+            return "I apologize, but I encountered an error while generating the answer. Please try again.";
+        }
+    }
+
+    private async Task<string> GenerateAnswerFromHistoryOnlyAsync(string query, List<DTO.ChatMessage> chatHistory)
+    {
+        try
+        {
+            _logger.LogInformation("Generating answer from chat history only for query: {Query}", query);
+
+            var systemPrompt = @"
+You are a helpful assistant. Answer the user's question based on the previous chat history.
+If the chat history contains no relevant information for the current question, state this politely.
+Respond in German in a natural, understandable style.";
+
+            var messages = new List<OpenAI.Chat.ChatMessage>();
+            messages.Add(new SystemChatMessage(systemPrompt));
+
+            // Add chat history (limit to last 15 messages to avoid token overflow)
+            foreach (var historyMessage in chatHistory.TakeLast(15))
+            {
+                if (historyMessage.Role.ToLower() == "user")
+                {
+                    messages.Add(new UserChatMessage(historyMessage.Content));
+                }
+                else if (historyMessage.Role.ToLower() == "assistant")
+                {
+                    messages.Add(new AssistantChatMessage(historyMessage.Content));
+                }
+            }
+
+            // Add current query
+            messages.Add(new UserChatMessage(query));
+
+            var response = await _chatClient.CompleteChatAsync(messages);
+            return response.Value.Content[0].Text;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating answer from history only for query: {Query}", query);
+            return "I apologize, but I could not generate an answer based on the chat history.";
         }
     }
 
@@ -239,21 +407,21 @@ public class ChatService : IChatService
     private string BuildEnhancedSystemPrompt()
     {
         return @"
-Du bist ein hilfreicher Assistent, der Fragen ausschließlich basierend auf dem bereitgestellten Quellmaterial beantwortet.
+You are a helpful assistant who answers questions exclusively based on the provided source material.
 
-WICHTIGE REGELN:
-1. Verwende nur Informationen, die direkt relevant für die Frage des Nutzers sind
-2. Wenn die bereitgestellten Quellen keine relevanten Informationen enthalten, sage dies klar
-3. Zitiere immer, auf welche Quelle du dich beziehst (z.B. ""Laut Quelle 1..."")
-4. Erfinde keine Informationen, die nicht in den Quellen stehen
-5. Wenn sich Quellen widersprechen, erwähne dies
-6. Sei präzise aber umfassend
-7. Antworte in deutscher Sprache in einem natürlichen, verständlichen Stil
-8. Wenn der Relevanz-Score niedrig ist (<0.5), erwähne, dass die Information möglicherweise nicht direkt verwandt ist
-9. Akzeptiere auch Quellen mit mittleren Relevanz-Scores (0.3-0.5) als brauchbar
-10. Kombiniere Informationen aus mehreren Quellen, wenn sie sich ergänzen
+IMPORTANT RULES:
+1. Use only information that is directly relevant to the user's question
+2. If the provided sources contain no relevant information, state this clearly
+3. Always cite which source you are referring to (e.g., ""According to Source 1..."")
+4. Do not invent information that is not in the sources
+5. If sources contradict each other, mention this
+6. Be precise but comprehensive
+7. Respond in German in a natural, understandable style
+8. If the relevance score is low (<0.5), mention that the information may not be directly related
+9. Also accept sources with medium relevance scores (0.3-0.5) as usable
+10. Combine information from multiple sources when they complement each other
 
-Formatiere deine Antwort klar mit Quellenangaben.";
+Format your answer clearly with source citations.";
     }
 
     private string BuildUserPrompt(string query, string context)
@@ -263,5 +431,36 @@ Formatiere deine Antwort klar mit Quellenangaben.";
 {context}
 
 Please answer the question based only on the provided sources. If the sources don't contain relevant information for the question, please state this clearly:";
+    }
+
+    private string BuildEnhancedSystemPromptWithHistory()
+    {
+        return @"
+You are a helpful assistant who answers questions based on the provided source material and chat history.
+
+IMPORTANT RULES:
+1. Use information from the provided sources as the primary source
+2. Use the chat history for context and to establish references to previous conversations
+3. If the provided sources contain no relevant information but the chat history is helpful, use it
+4. Always cite which source you are referring to (e.g., ""According to Source 1..."" or ""As mentioned earlier..."")
+5. Do not invent information that is neither in the sources nor in the chat history
+6. If sources and chat history contradict, mention this and prioritize the sources
+7. Be precise but comprehensive
+8. Respond in German in a natural, understandable style
+9. Establish references to the previous conversation when relevant
+10. Meaningfully combine information from sources and chat history
+
+Format your answer clearly with source citations and references to the chat history.";
+    }
+
+    private string BuildUserPromptWithContext(string query, string context)
+    {
+        return $@"Based on the previous chat history and the following sources, please answer the question:
+
+Question: {query}
+
+{context}
+
+Please answer the question based on the provided sources and chat history. If the sources contain no relevant information but the chat history is helpful, use it:";
     }
 }

@@ -20,7 +20,7 @@ public class DownloadService : IDownloadService
     private readonly IConfiguration _configuration;
     private readonly ILogger<DownloadService> _logger;
     
-    // Sichere Token-Schlüssel (in Produktion aus Configuration)
+    // Secure token keys (from Configuration in production)
     private readonly string _tokenSecret;
     private readonly TimeSpan _defaultExpiration;
     
@@ -35,7 +35,7 @@ public class DownloadService : IDownloadService
         _configuration = configuration;
         _logger = logger;
         
-        // Sicherer Token-Schlüssel (32+ Zeichen)
+        // Secure token key (32+ characters)
         _tokenSecret = configuration["DownloadSecurity:TokenSecret"] 
             ?? "DriftMind-Secure-Download-Token-Key-2025-" + Environment.MachineName;
         _defaultExpiration = TimeSpan.FromMinutes(
@@ -46,7 +46,7 @@ public class DownloadService : IDownloadService
     {
         try
         {
-            // 1. Überprüfen ob Dokument existiert und Datei verfügbar ist
+            // 1. Check if document exists and file is available
             var documentExists = await ValidateDocumentAccessAsync(documentId);
             if (!documentExists.success)
             {
@@ -71,10 +71,10 @@ public class DownloadService : IDownloadService
                 Purpose = "download"
             };
             
-            // 3. Token verschlüsselt generieren
+            // 3. Generate encrypted token
             var token = GenerateSecureToken(tokenData);
             
-            // 4. Download-Aktivität loggen
+            // 4. Log download activity
             _logger.LogInformation("Generated download token for document {DocumentId}, expires at {ExpiresAt}",
                 documentId, expiresAt);
             
@@ -106,7 +106,7 @@ public class DownloadService : IDownloadService
             _logger.LogDebug("Validating download token: {TokenPreview}", 
                 string.IsNullOrEmpty(token) ? "null/empty" : $"{token.Substring(0, Math.Min(20, token.Length))}...");
             
-            // 1. Token entschlüsseln und validieren
+            // 1. Decrypt and validate token
             var tokenData = ValidateSecureToken(token);
             if (tokenData == null)
             {
@@ -118,7 +118,7 @@ public class DownloadService : IDownloadService
                 };
             }
             
-            // 2. Ablaufzeit prüfen
+            // 2. Check expiration time
             if (DateTime.UtcNow > tokenData.ExpiresAt)
             {
                 _logger.LogWarning("Expired download token used for document {DocumentId}",
@@ -132,7 +132,7 @@ public class DownloadService : IDownloadService
                 };
             }
             
-            // 3. Dokument-Existenz erneut prüfen (Sicherheit)
+            // 3. Check document existence again (security)
             var documentExists = await ValidateDocumentAccessAsync(tokenData.DocumentId);
             if (!documentExists.success)
             {
@@ -199,7 +199,7 @@ public class DownloadService : IDownloadService
             // 2. Datei aus Blob Storage abrufen
             var blobDownloadInfo = await _blobStorage.DownloadFileAsync(blobPath);
             
-            // 3. Download-Aktivität loggen (vereinfacht)
+            // 3. Log download activity (simplified)
             await LogDownloadActivityAsync(documentId, null, true);
             
             _logger.LogInformation("File download initiated for document {DocumentId}, file: {FileName}",
@@ -231,11 +231,11 @@ public class DownloadService : IDownloadService
     {
         try
         {
-            // Für Audit-Trail: Download-Aktivitäten protokollieren (vereinfacht)
+            // For audit trail: Log download activities (simplified)
             _logger.LogInformation("Download {Status} for document {DocumentId} at {Timestamp}",
                 success ? "SUCCESS" : "FAILED", documentId, DateTime.UtcNow);
             
-            // Optional: In Datenbank oder separate Log-Datei schreiben
+            // Optional: Write to database or separate log file
             // await _auditService.LogDownloadAsync(documentId, success);
         }
         catch (Exception ex)
@@ -264,13 +264,13 @@ public class DownloadService : IDownloadService
             
             var document = results.First().Document;
             
-            // Prüfen ob Blob-Pfad verfügbar ist
+            // Check if blob path is available
             if (string.IsNullOrEmpty(document.BlobPath))
             {
                 return (false, "No file available for download");
             }
             
-            // Optional: Blob-Existenz prüfen (kann Performance beeinträchtigen)
+            // Optional: Check blob existence (may impact performance)
             // var exists = await _blobStorage.FileExistsAsync(document.BlobPath);
             // if (!exists) return (false, "File no longer exists");
             
@@ -299,7 +299,7 @@ public class DownloadService : IDownloadService
             // 2. Token Base64-kodieren
             var tokenBase64 = Convert.ToBase64String(tokenBytes);
             
-            // 3. HMAC-Signatur generieren für Manipulationsschutz
+            // 3. Generate HMAC signature for manipulation protection
             using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_tokenSecret));
             var signatureBytes = hmac.ComputeHash(tokenBytes);
             var signature = Convert.ToBase64String(signatureBytes);

@@ -9,6 +9,7 @@ An ASP.NET Core Web API that extracts text from files, splits it into chunks, cr
 - **Vector Search**: Storage and search in Azure AI Search
 - **File Upload**: Support for .txt, .md, .pdf, and .docx files (max 12MB)
 - **Document Management**: Full CRUD operations for documents
+- **Chat History Integration**: Contextual conversations with AI remembering previous interactions
 - **RESTful API**: Simple HTTP-based interface
 
 ## Prerequisites
@@ -111,7 +112,19 @@ Searches documents semantically and generates answers with GPT-4o.
   "maxResults": 10,
   "useSemanticSearch": true,
   "documentId": "optional-filter",
-  "includeAnswer": true
+  "includeAnswer": true,
+  "chatHistory": [
+    {
+      "role": "user",
+      "content": "Previous question...",
+      "timestamp": "2025-08-03T10:00:00Z"
+    },
+    {
+      "role": "assistant", 
+      "content": "Previous answer...",
+      "timestamp": "2025-08-03T10:00:30Z"
+    }
+  ]
 }
 ```
 
@@ -130,7 +143,7 @@ Searches documents semantically and generates answers with GPT-4o.
       "createdAt": "2025-07-31T10:00:00Z"
     }
   ],
-  "generatedAnswer": "GPT-4o generated answer based on search results...",
+  "generatedAnswer": "GPT-4o generated answer based on search results and chat history...",
   "success": true,
   "totalResults": 5
 }
@@ -142,6 +155,54 @@ Searches documents semantically and generates answers with GPT-4o.
 - `useSemanticSearch` (optional, default: true): Use semantic vector search
 - `documentId` (optional): Filter to specific document
 - `includeAnswer` (optional, default: true): Generate GPT-4o answer
+- `chatHistory` (optional): Array of previous conversation messages for context
+
+#### Chat History Integration
+
+The search endpoint now supports optional chat history to enable contextual conversations:
+
+**Chat History Behavior:**
+1. **With Documents + History**: Uses documents as primary source, chat history for additional context
+2. **No Documents + History**: Falls back to answering from chat history only
+3. **Token Management**: Automatically limits to last 10-15 messages to prevent overflow
+4. **Backward Compatible**: Existing requests without `chatHistory` work unchanged
+
+**ChatMessage Format:**
+```json
+{
+  "role": "user|assistant",
+  "content": "Message content",
+  "timestamp": "2025-08-03T10:00:00Z"
+}
+```
+
+**Example Use Cases:**
+- **Follow-up Questions**: "Can you tell me more about that?" (references previous conversation)
+- **Clarifications**: "What did you mean by X?" (asks about previous AI response)
+- **Topic References**: "What was the first topic we discussed?" (answered from history if no documents found)
+
+**Example with Chat History:**
+```bash
+curl -X POST "http://localhost:5151/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How does that work in practice?",
+    "maxResults": 5,
+    "includeAnswer": true,
+    "chatHistory": [
+      {
+        "role": "user",
+        "content": "What is Machine Learning?",
+        "timestamp": "2025-08-03T09:00:00Z"
+      },
+      {
+        "role": "assistant", 
+        "content": "Machine Learning is a subset of AI that enables computers to learn from data...",
+        "timestamp": "2025-08-03T09:00:30Z"
+      }
+    ]
+  }'
+```
 
 ### POST /documents
 
@@ -423,9 +484,42 @@ curl -X POST "http://localhost:5151/search" \
   }'
 ```
 
+### Example with curl (Search with Chat History):
+
+```bash
+curl -X POST "http://localhost:5151/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Can you explain that more simply?",
+    "maxResults": 5,
+    "useSemanticSearch": true,
+    "includeAnswer": true,
+    "chatHistory": [
+      {
+        "role": "user",
+        "content": "What is Neural Networks?",
+        "timestamp": "2025-08-03T09:00:00Z"
+      },
+      {
+        "role": "assistant",
+        "content": "Neural Networks are computational models inspired by biological neurons...",
+        "timestamp": "2025-08-03T09:00:30Z"
+      }
+    ]
+  }'
+```
+
 ### Example with the HTTP file:
 
-Use the provided `DriftMind.http` file with VS Code REST Client Extension.
+Use the provided `DriftMind.http` file with VS Code REST Client Extension for comprehensive API testing.
+The file includes examples for:
+- Basic file upload scenarios
+- Standard search requests  
+- Search with chat history integration
+- Follow-up questions with context
+- Fallback scenarios (history-only answers)
+- Document management operations
+- Download token generation and file downloads
 
 ## Development
 
@@ -437,7 +531,9 @@ DriftMind/
 │   └── FileUploadOptions.cs
 ├── DTOs/
 │   ├── UploadDTOs.cs
-│   └── SearchDTOs.cs
+│   ├── SearchDTOs.cs (includes ChatMessage)
+│   ├── DocumentDTOs.cs
+│   └── DownloadDTOs.cs
 ├── Services/
 │   ├── TextChunkingService.cs
 │   ├── EmbeddingService.cs
@@ -449,7 +545,7 @@ DriftMind/
 │   └── DocumentManagementService.cs
 ├── Program.cs
 ├── appsettings.json
-└── DriftMind.http
+└── DriftMind.http (includes chat history examples)
 ```
 
 ### Logging

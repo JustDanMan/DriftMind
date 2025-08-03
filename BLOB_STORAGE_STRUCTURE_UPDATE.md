@@ -1,12 +1,12 @@
-# 📁 Blob Storage Struktur-Anpassung
+# 📁 Blob Storage Structure Adjustment
 
-## ✅ **Erfolgreich geändert!**
+## ✅ **Successfully Changed!**
 
-Die Blob Storage Struktur wurde vereinfacht - **keine Datumsordner mehr**, alle Dateien werden direkt im Container gespeichert.
+The Blob Storage structure has been simplified - **no more date folders**, all files are stored directly in the container.
 
-## 🔧 **Änderungen:**
+## 🔧 **Changes:**
 
-### **Vorher:**
+### **Before:**
 ```
 documents/
 ├── 2025/08/01/
@@ -18,7 +18,7 @@ documents/
     └── uuid_other.pdf
 ```
 
-### **Nachher:**
+### **After:**
 ```
 documents/
 ├── uuid_document.pdf
@@ -28,41 +28,41 @@ documents/
 └── uuid_other.pdf
 ```
 
-## 📝 **Code-Änderungen:**
+## 📝 **Code Changes:**
 
 ### **BlobStorageService.cs**
-Alle drei Upload-Methoden wurden angepasst:
+All three upload methods have been adjusted:
 
 ```csharp
-// Vorher:
+// Before:
 var blobName = $"{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}_{fileName}";
 
-// Nachher:
+// After:
 var blobName = $"{Guid.NewGuid()}_{fileName}";
 ```
 
-### **Betroffene Methoden:**
+### **Affected Methods:**
 1. `UploadFileAsync(string, Stream, string)`
 2. `UploadFileAsync(string, Stream, string, Dictionary<string, string>?)`
 3. `UploadTextContentAsync(string, string, string, Dictionary<string, string>?)`
 
-## 🎯 **Vorteile der neuen Struktur:**
+## 🎯 **Advantages of the New Structure:**
 
-- **🗂️ Einfachere Navigation** - Keine Ordnerhierarchie
-- **⚡ Bessere Performance** - Direkter Zugriff ohne Pfad-Traversierung
-- **🔍 Vereinfachte Verwaltung** - Alle Dateien auf einer Ebene
-- **💾 Weniger Komplexität** - Keine Datums-abhängige Logik
-- **🔄 Konsistente URLs** - Kürzere und einfachere Blob-Pfade
+- **🗂️ Simpler Navigation** - No folder hierarchy
+- **⚡ Better Performance** - Direct access without path traversal
+- **🔍 Simplified Management** - All files on one level
+- **💾 Less Complexity** - No date-dependent logic
+- **🔄 Consistent URLs** - Shorter and simpler blob paths
 
-## 📊 **Auswirkungen:**
+## 📊 **Impact:**
 
-- ✅ **Neue Uploads**: Verwenden die neue flache Struktur
-- ✅ **Bestehende Dateien**: Bleiben funktionsfähig (rückwärtskompatibel)
-- ✅ **Search/Chat**: Funktioniert mit beiden Strukturen
-- ✅ **Dokumentation**: Alle README-Dateien aktualisiert
+- ✅ **New Uploads**: Use the new flat structure
+- ✅ **Existing Files**: Remain functional (backward compatible)
+- ✅ **Search/Chat**: Works with both structures
+- ✅ **Documentation**: All README files updated
 
-## 🚀 **Produktionsbereit:**
+## 🚀 **Production Ready:**
 
-Die Änderung ist **sofort produktionsbereit** und **rückwärtskompatibel**. Bestehende Dateien in Datumsordnern funktionieren weiterhin, neue Dateien werden in der vereinfachten Struktur gespeichert.
+The change is **immediately production ready** and **backward compatible**. Existing files in date folders continue to work, new files are stored in the simplified structure.
 
-**Kompilierung erfolgreich** - System ist einsatzbereit! 🎉
+**Compilation successful** - System is ready for deployment! 🎉

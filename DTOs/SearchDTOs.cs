@@ -1,5 +1,12 @@
 namespace DriftMind.DTOs;
 
+public class ChatMessage
+{
+    public string Role { get; set; } = string.Empty; // "user" or "assistant"
+    public string Content { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+}
+
 public class SearchRequest
 {
     public string Query { get; set; } = string.Empty;
@@ -7,6 +14,7 @@ public class SearchRequest
     public bool UseSemanticSearch { get; set; } = true;
     public string? DocumentId { get; set; }
     public bool IncludeAnswer { get; set; } = true;
+    public List<ChatMessage>? ChatHistory { get; set; } = null;
 }
 
 public class SearchResponse
