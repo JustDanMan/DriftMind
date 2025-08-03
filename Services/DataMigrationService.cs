@@ -5,6 +5,7 @@ namespace DriftMind.Services;
 public interface IDataMigrationService
 {
     Task<bool> MigrateToOptimizedMetadataStorageAsync();
+    Task<bool> FixContentTypesAsync();
 }
 
 public class DataMigrationService : IDataMigrationService
@@ -159,5 +160,97 @@ public class DataMigrationService : IDataMigrationService
             _logger.LogError(ex, "Error during migration to optimized metadata storage");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Fixes incorrect content types for existing documents based on file extensions.
+    /// </summary>
+    public async Task<bool> FixContentTypesAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Starting content type correction for existing documents");
+
+            // Get all documents
+            var allDocuments = await _searchService.GetAllDocumentsAsync(1000, 0);
+            int totalDocuments = allDocuments.Count;
+            int processedDocuments = 0;
+            int correctedDocuments = 0;
+
+            _logger.LogInformation("Found {TotalDocuments} documents to check", totalDocuments);
+
+            foreach (var (documentId, chunks) in allDocuments)
+            {
+                if (!chunks.Any()) continue;
+
+                // Only check the first chunk (where metadata is stored)
+                var firstChunk = chunks.OrderBy(c => c.ChunkIndex).First();
+                
+                if (string.IsNullOrEmpty(firstChunk.OriginalFileName))
+                {
+                    processedDocuments++;
+                    continue; // Skip if no filename
+                }
+
+                var correctContentType = GetCorrectContentType(firstChunk.OriginalFileName, firstChunk.ContentType);
+                
+                // Check if content type needs correction
+                if (!string.IsNullOrEmpty(firstChunk.ContentType) && 
+                    firstChunk.ContentType.Equals(correctContentType, StringComparison.OrdinalIgnoreCase))
+                {
+                    processedDocuments++;
+                    continue; // Already correct
+                }
+
+                // Update content type
+                _logger.LogInformation("Correcting content type for document {DocumentId}, file {FileName}: '{OldType}' -> '{NewType}'", 
+                    documentId, firstChunk.OriginalFileName, firstChunk.ContentType ?? "null", correctContentType);
+
+                firstChunk.ContentType = correctContentType;
+                
+                // Update in search index
+                await _searchService.IndexDocumentChunksAsync(new List<DocumentChunk> { firstChunk });
+                correctedDocuments++;
+                processedDocuments++;
+            }
+
+            _logger.LogInformation("Content type correction completed: {ProcessedDocuments} documents processed, {CorrectedDocuments} corrected", 
+                processedDocuments, correctedDocuments);
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during content type correction");
+            return false;
+        }
+    }
+
+    private string GetCorrectContentType(string fileName, string? clientContentType)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        
+        // Map file extensions to correct MIME types
+        var mimeTypes = new Dictionary<string, string>
+        {
+            { ".pdf", "application/pdf" },
+            { ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+            { ".doc", "application/msword" },
+            { ".txt", "text/plain" },
+            { ".md", "text/markdown" },
+            { ".json", "application/json" },
+            { ".xml", "application/xml" },
+            { ".csv", "text/csv" },
+            { ".log", "text/plain" }
+        };
+
+        // If we have a mapping for this extension, use it
+        if (mimeTypes.TryGetValue(extension, out var correctType))
+        {
+            return correctType;
+        }
+
+        // Fall back to client content type or generic binary
+        return clientContentType ?? "application/octet-stream";
     }
 }

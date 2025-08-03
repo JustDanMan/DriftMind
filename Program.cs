@@ -382,4 +382,30 @@ app.MapPost("/admin/migrate/optimize-metadata", async (IDataMigrationService mig
 .WithDescription("Optimizes storage by moving all document metadata (filename, size, content type) to chunk 0 only, removing redundancy from other chunks. This reduces storage usage by ~98% for metadata.")
 .WithTags("Administration", "Migration");
 
+// Content Type Migration Endpoint
+app.MapPost("/admin/migrate/fix-content-types", async (IDataMigrationService migrationService) =>
+{
+    var success = await migrationService.FixContentTypesAsync();
+    
+    if (success)
+    {
+        return Results.Ok(new { 
+            success = true, 
+            message = "Content type migration completed successfully. All documents now have correct MIME types based on file extensions."
+        });
+    }
+    else
+    {
+        return Results.Problem(
+            title: "Content Type Migration Failed",
+            detail: "Failed to complete content type migration. Check logs for details.",
+            statusCode: 500);
+    }
+})
+.WithName("MigrateFixContentTypes")
+.WithOpenApi()
+.WithSummary("Fixes incorrect content types for existing documents")
+.WithDescription("Corrects content types for existing documents by mapping file extensions to proper MIME types (e.g., .pdf -> application/pdf instead of application/octet-stream). Updates both Azure Search index and blob storage metadata.")
+.WithTags("Administration", "Migration");
+
 app.Run();

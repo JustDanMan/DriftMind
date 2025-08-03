@@ -77,7 +77,8 @@ public class DocumentProcessingService : IDocumentProcessingService
             string? contentType = null;
             try
             {
-                contentType = request.File.ContentType;
+                // Determine correct content type based on file extension
+                contentType = GetCorrectContentType(request.File.FileName, request.File.ContentType);
                 var fileName = $"{documentId}_{request.File.FileName}";
                 
                 // Upload file to blob storage
@@ -317,5 +318,40 @@ public class DocumentProcessingService : IDocumentProcessingService
         var textExtensions = new[] { ".txt", ".md", ".json", ".xml", ".csv", ".log" };
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
         return textExtensions.Contains(extension);
+    }
+
+    private string GetCorrectContentType(string fileName, string? clientContentType)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        
+        // Map file extensions to correct MIME types
+        var mimeTypes = new Dictionary<string, string>
+        {
+            { ".pdf", "application/pdf" },
+            { ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+            { ".doc", "application/msword" },
+            { ".txt", "text/plain" },
+            { ".md", "text/markdown" },
+            { ".json", "application/json" },
+            { ".xml", "application/xml" },
+            { ".csv", "text/csv" },
+            { ".log", "text/plain" }
+        };
+
+        // If we have a mapping for this extension, use it
+        if (mimeTypes.TryGetValue(extension, out var correctType))
+        {
+            // Log if the client sent a different (incorrect) content type
+            if (!string.IsNullOrEmpty(clientContentType) && 
+                !clientContentType.Equals(correctType, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Correcting content type for {FileName}: client sent '{ClientType}', using '{CorrectType}'", 
+                    fileName, clientContentType, correctType);
+            }
+            return correctType;
+        }
+
+        // Fall back to client content type or generic binary
+        return clientContentType ?? "application/octet-stream";
     }
 }

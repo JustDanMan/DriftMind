@@ -398,3 +398,17 @@ Content-Type: application/json
 }
 
 ###
+
+# ===== ADMINISTRATION & MIGRATION ENDPOINTS =====
+
+# Optimize Metadata Storage (reduce redundancy by ~98%)
+POST {{DriftMind_HostAddress}}/admin/migrate/optimize-metadata
+Content-Type: application/json
+
+###
+
+# Fix Content Types for Existing Documents
+POST {{DriftMind_HostAddress}}/admin/migrate/fix-content-types
+Content-Type: application/json
+
+###

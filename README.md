@@ -352,6 +352,32 @@ Optimizes existing documents by moving metadata to chunk 0 only, reducing storag
 }
 ```
 
+### POST /admin/migrate/fix-content-types
+
+Fixes incorrect content types for existing documents by mapping file extensions to proper MIME types.
+
+**Request:** No body required
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Content type migration completed successfully. All documents now have correct MIME types based on file extensions."
+}
+```
+
+**What this migration fixes:**
+- PDF files showing as "application/octet-stream" → corrected to "application/pdf"
+- DOCX files with incorrect MIME types → corrected to "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+- TXT files with generic types → corrected to "text/plain"
+- All other supported file types get their proper MIME types based on file extensions
+
+**Technical details:**
+- Updates both Azure Search index and blob storage metadata
+- Uses the same extension-to-MIME-type mapping as new uploads
+- Processes documents in batches for efficient operation
+- Logs progress and any errors during migration
+
 ### Storage Optimization Details
 
 **Before Optimization (Redundant Storage):**
