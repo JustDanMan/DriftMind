@@ -12,7 +12,7 @@ public interface IFileProcessingService
 {
     Task<(bool Success, string Text, string ErrorMessage)> ExtractTextFromFileAsync(IFormFile file);
     bool IsFileTypeSupported(string fileName);
-    bool IsFileSizeValid(long fileSizeInBytes);
+    bool IsFileSizeValid(long fileSizeBytes);
 }
 
 public class FileProcessingService : IFileProcessingService
@@ -32,9 +32,9 @@ public class FileProcessingService : IFileProcessingService
         return _fileUploadOptions.AllowedExtensions.Contains(extension);
     }
 
-    public bool IsFileSizeValid(long fileSizeInBytes)
+    public bool IsFileSizeValid(long fileSizeBytes)
     {
-        return fileSizeInBytes <= _fileUploadOptions.MaxFileSizeInBytes;
+        return fileSizeBytes <= _fileUploadOptions.MaxFileSizeInBytes;
     }
 
     public async Task<(bool Success, string Text, string ErrorMessage)> ExtractTextFromFileAsync(IFormFile file)

@@ -41,4 +41,7 @@ public class DocumentChunk
 
     [SimpleField(IsFilterable = true)]
     public string? TextContentBlobPath { get; set; }
+
+    [SimpleField(IsFilterable = true, IsSortable = true)]
+    public long? FileSizeBytes { get; set; }
 }

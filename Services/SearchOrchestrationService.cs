@@ -60,12 +60,15 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             var resultsList = searchResults.GetResults().ToList();
             _logger.LogInformation("Search results received: {ResultCount} for query: '{Query}'", resultsList.Count, request.Query);
 
-            // 3. Convert to DTOs with improved relevance scoring
+            // 3. Create SearchResult objects from Azure Search results
             var results = new List<SearchResult>();
+            // Cache metadata for this search request to avoid redundant calls
+            var metadataCache = new Dictionary<string, (string? BlobPath, string? BlobContainer, string? OriginalFileName, string? ContentType, string? TextContentBlobPath, long? FileSizeBytes)>();
+            
             foreach (var result in resultsList)
             {
-                var vectorScore = result.Score;
-                var combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
+                double vectorScore = result.Score ?? 0.0;
+                double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
                     result.Document.Content, 
                     request.Query, 
                     vectorScore);
@@ -74,6 +77,21 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     result.Document.Content, 
                     request.Query, 
                     vectorScore);
+
+                // Get metadata from cache or load once per document
+                if (!metadataCache.TryGetValue(result.Document.DocumentId, out var metadata))
+                {
+                    var documentMetadata = await EnsureDocumentMetadataAsync(result.Document);
+                    metadata = (
+                        documentMetadata.BlobPath,
+                        documentMetadata.BlobContainer,
+                        documentMetadata.OriginalFileName,
+                        documentMetadata.ContentType,
+                        documentMetadata.TextContentBlobPath,
+                        documentMetadata.FileSizeBytes
+                    );
+                    metadataCache[result.Document.DocumentId] = metadata;
+                }
 
                 results.Add(new SearchResult
                 {
@@ -87,25 +105,16 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     CreatedAt = result.Document.CreatedAt,
                     IsRelevant = isRelevant,
                     RelevanceScore = combinedScore,
-                    // Add blob storage information
-                    BlobPath = result.Document.BlobPath,
-                    BlobContainer = result.Document.BlobContainer,
-                    OriginalFileName = result.Document.OriginalFileName,
-                    ContentType = result.Document.ContentType,
-                    TextContentBlobPath = result.Document.TextContentBlobPath,
-                    // Add download information if file is available
-                    Download = !string.IsNullOrEmpty(result.Document.BlobPath) ? new DownloadInfo
-                    {
-                        DocumentId = result.Document.DocumentId,
-                        TokenEndpoint = $"/download/token",
-                        FileName = result.Document.OriginalFileName ?? "unknown",
-                        FileType = Path.GetExtension(result.Document.OriginalFileName ?? ""),
-                        TokenExpirationMinutes = 15
-                    } : null
+                    // Use cached metadata
+                    BlobPath = metadata.BlobPath,
+                    BlobContainer = metadata.BlobContainer,
+                    OriginalFileName = metadata.OriginalFileName,
+                    ContentType = metadata.ContentType,
+                    TextContentBlobPath = metadata.TextContentBlobPath,
+                    FileSizeBytes = metadata.FileSizeBytes
+                    // Download: Use POST /download/token with documentId if OriginalFileName != null
                 });
-            }
-
-            // 4. Apply adaptive filtering based on query characteristics
+            }            // 4. Apply adaptive filtering based on query characteristics
             var filteredResults = FilterResults(results, request);
 
             _logger.LogInformation("Filtered {Original} results to {Relevant} relevant results for query: '{Query}'", 
@@ -208,5 +217,62 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             .OrderByDescending(r => r.Score)
             .Take(request.MaxResults)
             .ToList();
+    }
+
+    /// <summary>
+    /// Ensures document metadata is available by fetching from chunk 0 if current chunk doesn't have it
+    /// </summary>
+    private async Task<DocumentMetadata> EnsureDocumentMetadataAsync(DocumentChunk chunk)
+    {
+        // If current chunk has metadata, use it
+        if (!string.IsNullOrEmpty(chunk.OriginalFileName))
+        {
+            return new DocumentMetadata
+            {
+                BlobPath = chunk.BlobPath,
+                BlobContainer = chunk.BlobContainer,
+                OriginalFileName = chunk.OriginalFileName,
+                ContentType = chunk.ContentType,
+                TextContentBlobPath = chunk.TextContentBlobPath,
+                FileSizeBytes = chunk.FileSizeBytes
+            };
+        }
+
+        // Otherwise, get metadata from chunk 0 of the same document
+        try
+        {
+            var chunks = await _searchService.GetDocumentChunksAsync(chunk.DocumentId);
+            var firstChunk = chunks.FirstOrDefault(c => c.ChunkIndex == 0);
+            
+            return new DocumentMetadata
+            {
+                BlobPath = firstChunk?.BlobPath,
+                BlobContainer = firstChunk?.BlobContainer,
+                OriginalFileName = firstChunk?.OriginalFileName,
+                ContentType = firstChunk?.ContentType,
+                TextContentBlobPath = firstChunk?.TextContentBlobPath,
+                FileSizeBytes = firstChunk?.FileSizeBytes
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to retrieve metadata from chunk 0 for document {DocumentId}", chunk.DocumentId);
+            
+            // Return empty metadata if we can't get it
+            return new DocumentMetadata();
+        }
+    }
+
+    /// <summary>
+    /// Helper class to hold document metadata
+    /// </summary>
+    private class DocumentMetadata
+    {
+        public string? BlobPath { get; set; }
+        public string? BlobContainer { get; set; }
+        public string? OriginalFileName { get; set; }
+        public string? ContentType { get; set; }
+        public string? TextContentBlobPath { get; set; }
+        public long? FileSizeBytes { get; set; }
     }
 }

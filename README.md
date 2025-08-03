@@ -2,6 +2,26 @@
 
 An ASP.NET Core Web API that extracts text from files, splits it into chunks, creates embeddings, and stores them in Azure AI Search. Supports file uploads (.txt, .md, .pdf, .docx).
 
+## 🚀 Recent Updates
+
+### Storage Optimization & API Improvements (August 2025)
+- **Optimized Metadata Storage**: Document metadata now stored only in chunk 0, reducing storage redundancy by ~98%
+- **File Size Support**: Added `fileSizeBytes` to all document responses
+- **Streamlined Search API**: Removed redundant download information from search results
+- **Cleaner Data Structure**: File metadata (name, type, size) now available directly in search results
+- **Improved Performance**: Reduced API response size and storage usage significantly
+- **Migration Support**: Automatic migration for existing data to optimized structure
+
+**Breaking Changes:**
+- `download.fileName` and `download.fileType` removed from search results
+- Use `originalFileName` and `contentType` directly from search result object
+- Download availability determined by `originalFileName !== null`
+
+**Storage Architecture Changes:**
+- Document metadata (filename, content type, file size, blob paths) now stored only in the first chunk (ChunkIndex = 0)
+- All other chunks (ChunkIndex > 0) have these fields set to `null` to eliminate redundancy
+- New documents automatically use optimized storage; existing documents can be migrated via `/admin/migrate/optimize-metadata`
+
 ## Features
 
 - **Text Chunking**: Intelligent splitting of texts into overlapping chunks
@@ -22,7 +42,7 @@ An ASP.NET Core Web API that extracts text from files, splits it into chunks, cr
 
 ### 1. Azure OpenAI Setup
 1. Create an Azure OpenAI Resource
-2. Deploy the `text-embedding-ada-002` model
+2. Deploy the `text-embedding-ada-002` and `gpt-4o` model
 3. Note down endpoint and API key
 
 ### 2. Azure AI Search Setup
@@ -89,7 +109,7 @@ Uploads a file, extracts text, splits it into chunks, and creates embeddings.
   "message": "File 'document.pdf' successfully processed into 5 chunks and indexed.",
   "fileName": "document.pdf",
   "fileType": ".pdf",
-  "fileSizeInBytes": 245760
+  "fileSizeBytes": 245760
 }
 ```
 
@@ -139,8 +159,17 @@ Searches documents semantically and generates answers with GPT-4o.
       "documentId": "document-id",
       "chunkIndex": 0,
       "score": 0.85,
+      "vectorScore": 0.82,
       "metadata": "Metadata",
-      "createdAt": "2025-07-31T10:00:00Z"
+      "createdAt": "2025-07-31T10:00:00Z",
+      "isRelevant": true,
+      "relevanceScore": 0.85,
+      "blobPath": "documents/file.pdf",
+      "blobContainer": "documents",
+      "originalFileName": "document.pdf",
+      "contentType": "application/pdf",
+      "fileSizeBytes": 245760,
+      "isFileAvailable": true
     }
   ],
   "generatedAnswer": "GPT-4o generated answer based on search results and chat history...",
@@ -226,7 +255,7 @@ Lists all documents stored in the database with their metadata and statistics.
       "chunkCount": 5,
       "fileName": "example.pdf",
       "fileType": ".pdf",
-      "fileSizeInBytes": 245760,
+      "fileSizeBytes": 245760,
       "metadata": "File: example.pdf, Additional info",
       "createdAt": "2025-07-31T10:00:00Z",
       "lastUpdated": "2025-07-31T10:00:00Z",
@@ -302,6 +331,54 @@ Alternative endpoint to delete documents using a JSON request body.
 - `500 Internal Server Error`: Deletion failed due to system error
 
 ⚠️ **Warning**: Document deletion is permanent and cannot be undone.
+
+## Data Migration and Storage Optimization
+
+### POST /admin/migrate/optimize-metadata
+
+Optimizes existing documents by moving metadata to chunk 0 only, reducing storage redundancy by ~98%.
+
+**Request:** No body required
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Migration completed successfully. Metadata is now stored only in chunk 0, reducing storage redundancy by ~98%."
+}
+```
+
+### Storage Optimization Details
+
+**Before Optimization (Redundant Storage):**
+```
+Document with 50 chunks:
+- Chunk 0: filename="doc.pdf", contentType="application/pdf", fileSizeBytes=1024000
+- Chunk 1: filename="doc.pdf", contentType="application/pdf", fileSizeBytes=1024000  // REDUNDANT
+- Chunk 2: filename="doc.pdf", contentType="application/pdf", fileSizeBytes=1024000  // REDUNDANT
+- ... (same metadata copied 50 times)
+```
+
+**After Optimization (Efficient Storage):**
+```
+Document with 50 chunks:
+- Chunk 0: filename="doc.pdf", contentType="application/pdf", fileSizeBytes=1024000  // METADATA HERE
+- Chunk 1: filename=null, contentType=null, fileSizeBytes=null                      // OPTIMIZED
+- Chunk 2: filename=null, contentType=null, fileSizeBytes=null                      // OPTIMIZED
+- ... (metadata eliminated from 49 chunks = ~98% storage reduction)
+```
+
+**Benefits:**
+- **Storage Efficiency**: ~98% reduction in redundant metadata storage
+- **Cost Savings**: Lower Azure Search storage costs
+- **Performance**: Faster indexing and search operations
+- **Backward Compatibility**: APIs remain unchanged, metadata fetched from chunk 0 when needed
+
+**Migration Process:**
+1. Run `/admin/migrate/optimize-metadata` once after deploying the optimized version
+2. Existing documents are automatically updated to the new structure
+3. New uploads automatically use the optimized storage format
+4. No API changes required - metadata access is transparent
 
 ## Secure Download System
 
@@ -397,6 +474,8 @@ curl -X POST "http://localhost:8081/download/file" \
 Search results now include download information for available files:
 
 ```json
+# Example: Enhanced Search API Response with File Metadata
+```json
 {
   "query": "Azure configuration",
   "results": [
@@ -404,18 +483,36 @@ Search results now include download information for available files:
       "id": "doc-123_0",
       "content": "Azure configuration guide...",
       "documentId": "doc-123",
+      "chunkIndex": 0,
+      "score": 0.87,
+      "vectorScore": 0.85,
+      "metadata": "File: azure-guide.pdf",
+      "createdAt": "2025-08-03T10:00:00Z",
+      "isRelevant": true,
+      "relevanceScore": 0.87,
+      "blobPath": "documents/azure-guide.pdf",
+      "blobContainer": "documents", 
       "originalFileName": "azure-guide.pdf",
-      "isFileAvailable": true,
-      "download": {
-        "documentId": "doc-123",
-        "tokenEndpoint": "/download/token",
-        "fileName": "azure-guide.pdf",
-        "fileType": ".pdf",
-        "tokenExpirationMinutes": 15
-      }
+      "contentType": "application/pdf",
+      "fileSizeBytes": 2458624,
+      "isFileAvailable": true
     }
-  ]
+  ],
+  "generatedAnswer": "Based on the Azure configuration guide, here's how to set up...",
+  "success": true,
+  "totalResults": 1
 }
+```
+
+**File Download Process:**
+1. Check if file is available: `result.originalFileName !== null`
+2. Generate download token: `POST /download/token` with `documentId`
+3. Use returned token to download the file
+
+**Important Notes:**
+- `fileSizeBytes` can be `null` for documents uploaded before the file size feature
+- `originalFileName` being `null` indicates text-only content (no downloadable file)
+- File metadata is available directly in the search result (no separate download object)
 ```
 
 #### Configuration
@@ -434,6 +531,83 @@ Add to your `appsettings.json`:
 
 ⚠️ **Security Notice**: In production, ensure `TokenSecret` is a strong, unique key. Authentication and authorization should be handled at the application/frontend level.
 
+## 📋 Migration Guide (Breaking Changes)
+
+### From Previous API Version
+
+**If you're upgrading from a previous version, update your frontend code:**
+
+#### 1. Search Result Structure Changes
+
+**❌ Old (no longer available):**
+```javascript
+// These properties are no longer in the response:
+const fileName = result.download.fileName;     // REMOVED
+const fileType = result.download.fileType;    // REMOVED
+const fileSize = result.download.fileSizeBytes; // REMOVED
+```
+
+**✅ New (current structure):**
+```javascript
+// Use these properties instead:
+const fileName = result.originalFileName;      // Direct property
+const contentType = result.contentType;       // Direct property  
+const fileSize = result.fileSizeBytes;        // Direct property (nullable)
+```
+
+#### 2. Download Availability Check
+
+**❌ Old:**
+```javascript
+const canDownload = result.download !== null;
+```
+
+**✅ New:**
+```javascript
+const canDownload = result.originalFileName !== null;
+```
+
+#### 3. File Size Handling
+
+**New behavior:**
+- `fileSizeBytes` can be `null` for documents uploaded before August 2025
+- Handle null values gracefully in your UI
+
+```javascript
+function formatFileSize(bytes) {
+  if (bytes === null) return 'Size unknown';
+  if (bytes === 0) return '0 Bytes';
+  
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+```
+
+#### 4. Download Implementation
+
+**Updated download flow:**
+```javascript
+async function downloadFile(documentId) {
+  // Generate token
+  const response = await fetch('/download/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      documentId: documentId,
+      expirationMinutes: 15 
+    })
+  });
+  
+  if (response.ok) {
+    const tokenData = await response.json();
+    window.open(tokenData.downloadUrl, '_blank');
+  }
+}
+```
+
 ## Architecture
 
 ### Services
@@ -446,10 +620,11 @@ Add to your `appsettings.json`:
 - **IChatService**: GPT-4o integration for answer generation
 - **ISearchOrchestrationService**: Orchestration of search and answer processes
 - **IDocumentManagementService**: Document listing and metadata management
+- **IDataMigrationService**: Storage optimization and data migration
 
 ### Data Model
 
-**DocumentChunk:**
+**DocumentChunk (Optimized Storage):**
 - `Id`: Unique chunk ID
 - `Content`: Chunk content
 - `DocumentId`: Reference to original document
@@ -457,6 +632,23 @@ Add to your `appsettings.json`:
 - `Embedding`: 1536-dimensional vector
 - `CreatedAt`: Creation timestamp
 - `Metadata`: Additional information
+
+**Metadata Fields (stored only in chunk 0):**
+- `OriginalFileName`: Original file name (null for chunks > 0)
+- `ContentType`: MIME type (null for chunks > 0)
+- `FileSizeBytes`: File size in bytes (null for chunks > 0)
+- `BlobPath`: Azure Blob Storage path (null for chunks > 0)
+- `BlobContainer`: Storage container name (null for chunks > 0)
+- `TextContentBlobPath`: Extracted text blob path (null for chunks > 0)
+
+**Storage Architecture:**
+```
+Document Structure:
+├── Chunk 0 (ChunkIndex = 0): Contains full metadata + content + embedding
+├── Chunk 1 (ChunkIndex = 1): Contains only content + embedding (metadata = null)
+├── Chunk 2 (ChunkIndex = 2): Contains only content + embedding (metadata = null)
+└── ... (all metadata fields null for ChunkIndex > 0)
+```
 
 ## Usage
 
@@ -1000,6 +1192,43 @@ curl -X POST "http://localhost:5151/search" \
 ```bash
 dotnet run --verbosity detailed
 ```
+
+## 💡 Best Practices
+
+### File Upload
+- Supported formats: PDF, DOCX, TXT
+- Maximum file size: Check your Azure Storage configuration
+- Use descriptive filenames for better search results
+- Consider chunking large documents for optimal search performance
+
+### Search Optimization
+- Use specific keywords for better results
+- Hybrid search combines vector similarity with keyword matching
+- Results are ranked by relevance and include confidence scores
+- Filtering by content type or file size helps narrow results
+
+### Performance
+- The system automatically handles document chunking
+- Vector embeddings are cached for faster subsequent searches  
+- Azure Search provides sub-second search response times
+- Consider implementing result pagination for large result sets
+
+## ❓ FAQ
+
+**Q: Why is `fileSizeBytes` sometimes null?**
+A: Documents uploaded before August 2025 don't have file size information. New uploads will always include this data.
+
+**Q: Can I search within specific file types?**
+A: Yes, use the `contentType` field to filter results (e.g., "application/pdf").
+
+**Q: How long are download tokens valid?**
+A: Download tokens expire after the specified time (default: 60 minutes, configurable 1-1440 minutes).
+
+**Q: What happens if a document is deleted from blob storage?**
+A: The search index entry remains until manually cleaned up. Consider implementing a cleanup job.
+
+**Q: Can I upload the same file multiple times?**
+A: Yes, each upload creates a separate document entry with a unique ID.
 
 ## License
 

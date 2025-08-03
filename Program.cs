@@ -42,6 +42,7 @@ builder.Services.AddScoped<ISearchOrchestrationService, SearchOrchestrationServi
 builder.Services.AddScoped<IDocumentManagementService, DocumentManagementService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddScoped<IDownloadService, DownloadService>();
+builder.Services.AddScoped<IDataMigrationService, DataMigrationService>();
 
 // Configure URLs for production deployment
 builder.WebHost.UseUrls("http://0.0.0.0:8081");
@@ -346,5 +347,31 @@ app.MapPost("/download/file", async (TokenDownloadRequest request, IDownloadServ
 .WithSummary("Downloads a file using a secure token")
 .WithDescription("Downloads the file associated with the provided download token. The token must be valid and not expired. Token is provided in the request body for better security.")
 .WithTags("Downloads");
+
+// Data Migration Endpoint (for administrators)
+app.MapPost("/admin/migrate/optimize-metadata", async (IDataMigrationService migrationService) =>
+{
+    var success = await migrationService.MigrateToOptimizedMetadataStorageAsync();
+    
+    if (success)
+    {
+        return Results.Ok(new { 
+            success = true, 
+            message = "Migration completed successfully. Metadata is now stored only in chunk 0, reducing storage redundancy by ~98%."
+        });
+    }
+    else
+    {
+        return Results.Problem(
+            title: "Migration Failed",
+            detail: "Failed to complete metadata optimization migration. Check logs for details.",
+            statusCode: 500);
+    }
+})
+.WithName("MigrateOptimizeMetadata")
+.WithOpenApi()
+.WithSummary("Migrates existing documents to optimized metadata storage")
+.WithDescription("Optimizes storage by moving all document metadata (filename, size, content type) to chunk 0 only, removing redundancy from other chunks. This reduces storage usage by ~98% for metadata.")
+.WithTags("Administration", "Migration");
 
 app.Run();

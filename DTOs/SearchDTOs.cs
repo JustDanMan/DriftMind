@@ -46,8 +46,8 @@ public class SearchResult
     public string? OriginalFileName { get; set; }
     public string? ContentType { get; set; }
     public string? TextContentBlobPath { get; set; }
+    public long? FileSizeBytes { get; set; }
     
-    // Download Information
+    // Download availability can be determined by: OriginalFileName != null
     public bool IsFileAvailable => !string.IsNullOrEmpty(BlobPath);
-    public DownloadInfo? Download { get; set; }
 }

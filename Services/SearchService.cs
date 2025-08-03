@@ -46,10 +46,11 @@ public class SearchService : ISearchService
                 // Check if the index has the new blob storage fields
                 var hasBlobPath = existingIndex.Value.Fields.Any(f => f.Name == "BlobPath");
                 var hasTextContentBlobPath = existingIndex.Value.Fields.Any(f => f.Name == "TextContentBlobPath");
+                var hasFileSizeBytes = existingIndex.Value.Fields.Any(f => f.Name == "FileSizeBytes");
                 
-                if (!hasBlobPath || !hasTextContentBlobPath)
+                if (!hasBlobPath || !hasTextContentBlobPath || !hasFileSizeBytes)
                 {
-                    _logger.LogInformation("Index {IndexName} exists but missing blob storage fields. Updating...", IndexName);
+                    _logger.LogInformation("Index {IndexName} exists but missing some required fields. Updating...", IndexName);
                     await UpdateIndexWithBlobFieldsAsync();
                 }
                 else
@@ -163,6 +164,17 @@ public class SearchService : ISearchService
                     IsFilterable = true,
                     IsSearchable = false,
                     IsSortable = false,
+                    IsFacetable = false
+                });
+            }
+
+            if (!index.Fields.Any(f => f.Name == "FileSizeBytes"))
+            {
+                fieldsToAdd.Add(new SearchField("FileSizeBytes", SearchFieldDataType.Int64)
+                {
+                    IsFilterable = true,
+                    IsSearchable = false,
+                    IsSortable = true,
                     IsFacetable = false
                 });
             }

@@ -13,7 +13,7 @@ public class DocumentSummary
     public int ChunkCount { get; set; }
     public string? FileName { get; set; }
     public string? FileType { get; set; }
-    public long? FileSizeInBytes { get; set; }
+    public long? FileSizeBytes { get; set; }
     public string? Metadata { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset LastUpdated { get; set; }

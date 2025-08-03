@@ -61,10 +61,11 @@ public class DocumentManagementService : IDocumentManagementService
                 var firstChunk = sortedChunks.First();
                 var lastChunk = sortedChunks.Last();
 
-                // Extract file info from metadata if available
-                var fileName = ExtractFileNameFromMetadata(firstChunk.Metadata);
-                var fileType = ExtractFileTypeFromMetadata(firstChunk.Metadata, fileName);
-                var fileSizeInBytes = ExtractFileSizeFromMetadata(firstChunk.Metadata);
+                // Get document metadata from first chunk (ChunkIndex = 0)
+                // All metadata is stored only in the first chunk to avoid redundancy
+                var fileName = firstChunk.OriginalFileName;
+                var fileType = firstChunk.ContentType;
+                var fileSizeBytes = firstChunk.FileSizeBytes;
 
                 // Get sample content from first few chunks
                 var sampleContent = sortedChunks
@@ -79,7 +80,7 @@ public class DocumentManagementService : IDocumentManagementService
                     ChunkCount = chunks.Count,
                     FileName = fileName,
                     FileType = fileType,
-                    FileSizeInBytes = fileSizeInBytes,
+                    FileSizeBytes = fileSizeBytes,
                     Metadata = firstChunk.Metadata,
                     CreatedAt = firstChunk.CreatedAt,
                     LastUpdated = lastChunk.CreatedAt,
@@ -115,47 +116,6 @@ public class DocumentManagementService : IDocumentManagementService
                 Message = $"Error retrieving documents: {ex.Message}"
             };
         }
-    }
-
-    private string? ExtractFileNameFromMetadata(string? metadata)
-    {
-        if (string.IsNullOrEmpty(metadata)) return null;
-
-        // Look for "File: filename" pattern
-        var filePrefix = "File: ";
-        var fileIndex = metadata.IndexOf(filePrefix, StringComparison.OrdinalIgnoreCase);
-        if (fileIndex >= 0)
-        {
-            var startIndex = fileIndex + filePrefix.Length;
-            var endIndex = metadata.IndexOf(',', startIndex);
-            if (endIndex > startIndex)
-            {
-                return metadata.Substring(startIndex, endIndex - startIndex).Trim();
-            }
-            else
-            {
-                return metadata.Substring(startIndex).Trim();
-            }
-        }
-
-        return null;
-    }
-
-    private string? ExtractFileTypeFromMetadata(string? metadata, string? fileName)
-    {
-        if (!string.IsNullOrEmpty(fileName))
-        {
-            return Path.GetExtension(fileName);
-        }
-
-        return null;
-    }
-
-    private long? ExtractFileSizeFromMetadata(string? metadata)
-    {
-        // This would need to be implemented if file size is stored in metadata
-        // For now, return null as we don't store file size in metadata consistently
-        return null;
     }
 
     private string TruncateContent(string content, int maxLength)

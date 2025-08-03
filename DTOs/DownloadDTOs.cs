@@ -53,10 +53,8 @@ public class DownloadInfo
 {
     public string DocumentId { get; set; } = string.Empty;
     public string TokenEndpoint { get; set; } = string.Empty;
-    public string FileName { get; set; } = string.Empty;
-    public string FileType { get; set; } = string.Empty;
-    public long FileSizeBytes { get; set; }
     public int TokenExpirationMinutes { get; set; } = 15;
+    // FileName and FileType removed - available in SearchResult.OriginalFileName and SearchResult.ContentType
 }
 
 /// <summary>

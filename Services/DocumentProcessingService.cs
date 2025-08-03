@@ -5,7 +5,6 @@ namespace DriftMind.Services;
 
 public interface IDocumentProcessingService
 {
-    Task<UploadTextResponse> ProcessTextAsync(UploadTextRequest request);
     Task<UploadTextResponse> ProcessFileAsync(UploadFileRequest request);
 }
 
@@ -37,88 +36,6 @@ public class DocumentProcessingService : IDocumentProcessingService
         _logger = logger;
     }
 
-    public async Task<UploadTextResponse> ProcessTextAsync(UploadTextRequest request)
-    {
-        try
-        {
-            var documentId = request.DocumentId ?? Guid.NewGuid().ToString();
-            
-            _logger.LogInformation("Processing text for document {DocumentId}", documentId);
-
-            // 1. Split text into chunks
-            var chunks = _chunkingService.ChunkText(request.Text, request.ChunkSize, request.ChunkOverlap);
-            
-            if (!chunks.Any())
-            {
-                return new UploadTextResponse
-                {
-                    DocumentId = documentId,
-                    Success = false,
-                    Message = "No chunks could be created from the text."
-                };
-            }
-
-            _logger.LogInformation("Text was split into {ChunkCount} chunks", chunks.Count);
-
-            // 2. Generate embeddings for all chunks
-            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunks);
-            
-            _logger.LogInformation("Embeddings generated for {ChunkCount} chunks", embeddings.Count);
-
-            // 3. Create DocumentChunk objects
-            var documentChunks = new List<DocumentChunk>();
-            for (int i = 0; i < chunks.Count; i++)
-            {
-                documentChunks.Add(new DocumentChunk
-                {
-                    Id = $"{documentId}_{i}",
-                    DocumentId = documentId,
-                    Content = chunks[i],
-                    ChunkIndex = i,
-                    Embedding = embeddings[i],
-                    Metadata = request.Metadata,
-                    CreatedAt = DateTimeOffset.UtcNow
-                });
-            }
-
-            // 4. Index chunks in Azure AI Search
-            var indexingSuccess = await _searchService.IndexDocumentChunksAsync(documentChunks);
-
-            if (indexingSuccess)
-            {
-                _logger.LogInformation("Document {DocumentId} successfully processed and indexed", documentId);
-                return new UploadTextResponse
-                {
-                    DocumentId = documentId,
-                    ChunksCreated = chunks.Count,
-                    Success = true,
-                    Message = $"Text successfully processed into {chunks.Count} chunks and indexed."
-                };
-            }
-            else
-            {
-                _logger.LogWarning("Indexing for document {DocumentId} was not completely successful", documentId);
-                return new UploadTextResponse
-                {
-                    DocumentId = documentId,
-                    ChunksCreated = chunks.Count,
-                    Success = false,
-                    Message = "Text was processed, but indexing was not completely successful."
-                };
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing text for document {DocumentId}", request.DocumentId);
-            return new UploadTextResponse
-            {
-                DocumentId = request.DocumentId ?? "unknown",
-                Success = false,
-                Message = $"Error during processing: {ex.Message}"
-            };
-        }
-    }
-
     public async Task<UploadTextResponse> ProcessFileAsync(UploadFileRequest request)
     {
         try
@@ -138,7 +55,7 @@ public class DocumentProcessingService : IDocumentProcessingService
                     Message = $"File type not supported. Supported types: .txt, .md, .pdf, .docx",
                     FileName = request.File.FileName,
                     FileType = Path.GetExtension(request.File.FileName),
-                    FileSizeInBytes = request.File.Length
+                    FileSizeBytes = request.File.Length
                 };
             }
 
@@ -151,7 +68,7 @@ public class DocumentProcessingService : IDocumentProcessingService
                     Message = "File size exceeds the maximum allowed size.",
                     FileName = request.File.FileName,
                     FileType = Path.GetExtension(request.File.FileName),
-                    FileSizeInBytes = request.File.Length
+                    FileSizeBytes = request.File.Length
                 };
             }
 
@@ -207,7 +124,7 @@ public class DocumentProcessingService : IDocumentProcessingService
                     Message = extractResult.ErrorMessage,
                     FileName = request.File.FileName,
                     FileType = Path.GetExtension(request.File.FileName),
-                    FileSizeInBytes = request.File.Length
+                    FileSizeBytes = request.File.Length
                 };
             }
 
@@ -249,24 +166,27 @@ public class DocumentProcessingService : IDocumentProcessingService
             }
 
             // 4. Process extracted text using existing text processing logic with blob storage info
-            var textRequest = new UploadTextRequest
-            {
-                Text = extractResult.Text,
-                DocumentId = documentId,
-                Metadata = string.IsNullOrEmpty(request.Metadata) 
-                    ? $"File: {request.File.FileName}" 
-                    : $"File: {request.File.FileName}, {request.Metadata}",
-                ChunkSize = request.ChunkSize,
-                ChunkOverlap = request.ChunkOverlap
-            };
+            var metadata = string.IsNullOrEmpty(request.Metadata) 
+                ? $"File: {request.File.FileName}" 
+                : $"File: {request.File.FileName}, {request.Metadata}";
 
             // Include blob storage information in chunks
-            var result = await ProcessTextWithBlobInfoAsync(textRequest, blobPath, textContentBlobPath, request.File.FileName, contentType);
+            var result = await ProcessTextWithBlobInfoAsync(
+                extractResult.Text, 
+                documentId, 
+                metadata, 
+                request.ChunkSize, 
+                request.ChunkOverlap, 
+                blobPath, 
+                textContentBlobPath, 
+                request.File.FileName, 
+                contentType, 
+                request.File.Length);
             
             // 5. Add file-specific information to response
             result.FileName = request.File.FileName;
             result.FileType = Path.GetExtension(request.File.FileName);
-            result.FileSizeInBytes = request.File.Length;
+            result.FileSizeBytes = request.File.Length;
 
             if (result.Success)
             {
@@ -288,32 +208,37 @@ public class DocumentProcessingService : IDocumentProcessingService
                 Message = $"Error during file processing: {ex.Message}",
                 FileName = request.File.FileName,
                 FileType = Path.GetExtension(request.File.FileName),
-                FileSizeInBytes = request.File.Length
+                FileSizeBytes = request.File.Length
             };
         }
     }
 
     private async Task<UploadTextResponse> ProcessTextWithBlobInfoAsync(
-        UploadTextRequest request, 
+        string text,
+        string? documentId,
+        string? metadata,
+        int chunkSize,
+        int chunkOverlap,
         string? blobPath, 
         string? textContentBlobPath,
         string? originalFileName, 
-        string? contentType)
+        string? contentType,
+        long? fileSizeBytes = null)
     {
         try
         {
-            var documentId = request.DocumentId ?? Guid.NewGuid().ToString();
+            var docId = documentId ?? Guid.NewGuid().ToString();
             
-            _logger.LogInformation("Processing text for document {DocumentId}", documentId);
+            _logger.LogInformation("Processing text for document {DocumentId}", docId);
 
             // 1. Split text into chunks
-            var chunks = _chunkingService.ChunkText(request.Text, request.ChunkSize, request.ChunkOverlap);
+            var chunks = _chunkingService.ChunkText(text, chunkSize, chunkOverlap);
             
             if (!chunks.Any())
             {
                 return new UploadTextResponse
                 {
-                    DocumentId = documentId,
+                    DocumentId = docId,
                     Success = false,
                     Message = "No text chunks were created from the provided text."
                 };
@@ -332,31 +257,32 @@ public class DocumentProcessingService : IDocumentProcessingService
             var containerName = _configuration["AzureStorage:ContainerName"] ?? "documents";
             var documentChunks = chunksWithEmbeddings.Select((chunkData, index) => new DocumentChunk
             {
-                Id = $"{documentId}_{index}",
+                Id = $"{docId}_{index}",
                 Content = chunkData.chunk,
-                DocumentId = documentId,
+                DocumentId = docId,
                 ChunkIndex = index,
                 Embedding = chunkData.embedding,
-                Metadata = request.Metadata,
-                BlobPath = blobPath,
-                BlobContainer = containerName,
-                OriginalFileName = originalFileName,
-                ContentType = contentType,
-                TextContentBlobPath = textContentBlobPath
+                Metadata = metadata,
+                BlobPath = index == 0 ? blobPath : null, // Only first chunk stores blob info
+                BlobContainer = index == 0 ? containerName : null, // Only first chunk stores container
+                OriginalFileName = index == 0 ? originalFileName : null, // Only first chunk stores filename
+                ContentType = index == 0 ? contentType : null, // Only first chunk stores content type
+                TextContentBlobPath = index == 0 ? textContentBlobPath : null, // Only first chunk stores text blob path
+                FileSizeBytes = index == 0 ? fileSizeBytes : null // Only first chunk stores file size
             }).ToList();
 
             _logger.LogInformation("Created {ChunkCount} chunks with embeddings for document {DocumentId}", 
-                chunks.Count, documentId);
+                chunks.Count, docId);
 
             // 4. Index chunks in Azure AI Search
             var indexingSuccess = await _searchService.IndexDocumentChunksAsync(documentChunks);
 
             if (indexingSuccess)
             {
-                _logger.LogInformation("Document {DocumentId} successfully processed and indexed", documentId);
+                _logger.LogInformation("Document {DocumentId} successfully processed and indexed", docId);
                 return new UploadTextResponse
                 {
-                    DocumentId = documentId,
+                    DocumentId = docId,
                     ChunksCreated = chunks.Count,
                     Success = true,
                     Message = $"Text successfully processed into {chunks.Count} chunks and indexed."
@@ -364,10 +290,10 @@ public class DocumentProcessingService : IDocumentProcessingService
             }
             else
             {
-                _logger.LogWarning("Indexing for document {DocumentId} was not completely successful", documentId);
+                _logger.LogWarning("Indexing for document {DocumentId} was not completely successful", docId);
                 return new UploadTextResponse
                 {
-                    DocumentId = documentId,
+                    DocumentId = docId,
                     ChunksCreated = chunks.Count,
                     Success = false,
                     Message = "Text was processed, but indexing was not completely successful."
@@ -376,10 +302,10 @@ public class DocumentProcessingService : IDocumentProcessingService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing text for document {DocumentId}", request.DocumentId);
+            _logger.LogError(ex, "Error processing text for document {DocumentId}", documentId ?? "unknown");
             return new UploadTextResponse
             {
-                DocumentId = request.DocumentId ?? "unknown",
+                DocumentId = documentId ?? "unknown",
                 Success = false,
                 Message = $"Error during processing: {ex.Message}"
             };
