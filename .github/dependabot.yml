@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # .NET NuGet packages
+  # .NET 8 NuGet packages
   - package-ecosystem: "nuget"
     directory: "/"
     schedule:
@@ -10,30 +10,56 @@ updates:
     assignees:
       - "JustDanMan"
     commit-message:
-      prefix: "deps"
+      prefix: "deps(.NET 8)"
       include: "scope"
     labels:
       - "dependencies"
       - "dotnet"
+      - "net8"
+    target-branch: "main"
+    # Only allow compatible .NET 8 versions
+    ignore:
+      - dependency-name: "Microsoft.*"
+        versions: ["< 8.0.0"]
+      - dependency-name: "System.*"
+        versions: ["< 8.0.0"]
     groups:
       # Group Azure SDK updates together
       azure-sdk:
         patterns:
           - "Azure.*"
           - "Microsoft.Azure.*"
+        update-types:
+          - "minor"
+          - "patch"
       # Group OpenAI related packages
       openai:
         patterns:
           - "Azure.AI.OpenAI"
           - "OpenAI"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group ASP.NET Core 8 packages
+      aspnetcore:
+        patterns:
+          - "Microsoft.AspNetCore.*"
+        update-types:
+          - "patch"
       # Group Microsoft extensions
       microsoft-extensions:
         patterns:
           - "Microsoft.Extensions.*"
-      # Group Entity Framework
+        update-types:
+          - "minor"
+          - "patch"
+      # Group Entity Framework Core 8
       entity-framework:
         patterns:
           - "Microsoft.EntityFrameworkCore*"
+        update-types:
+          - "minor"
+          - "patch"
       # Group testing frameworks
       testing:
         patterns:
@@ -42,6 +68,26 @@ updates:
           - "NUnit*"
           - "Moq"
           - "FluentAssertions"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group document processing libraries
+      document-processing:
+        patterns:
+          - "DocumentFormat.OpenXml"
+          - "iText7"
+          - "itext*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group Swagger/OpenAPI
+      swagger:
+        patterns:
+          - "Swashbuckle.*"
+          - "Microsoft.AspNetCore.OpenApi"
+        update-types:
+          - "minor"
+          - "patch"
 
   # GitHub Actions workflows
   - package-ecosystem: "github-actions"
@@ -58,18 +104,23 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+      - "ci/cd"
+    target-branch: "main"
 
-  # Docker dependencies (if using Dockerfile)
+  # Docker dependencies (.NET 8 runtime)
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
       time: "06:00"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     assignees:
       - "JustDanMan"
     commit-message:
-      prefix: "docker"
+      prefix: "docker(.NET 8)"
     labels:
       - "dependencies"
       - "docker"
+      - "net8"
+    target-branch: "main"
