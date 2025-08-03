@@ -11,7 +11,15 @@ public static class RelevanceAnalyzer
         "ich", "du", "er", "sie", "es", "wir", "ihr", "sich", "mich", "dich", "uns", "euch",
         "wenn", "dass", "weil", "damit", "obwohl", "falls", "sofern",
         "nicht", "kein", "keine", "keiner", "keinem", "keines",
-        "sehr", "mehr", "auch", "nur", "noch", "schon", "bereits", "immer", "oft", "manchmal"
+        "sehr", "mehr", "auch", "nur", "noch", "schon", "bereits", "immer", "oft", "manchmal",
+        // Question words and modal particles
+        "wo", "wohin", "woher", "wann", "warum", "weshalb", "wieso", "welche", "welcher", "welches", "welchen",
+        // Common verbs
+        "macht", "machen", "tun", "gehen", "kommen", "sagen", "gibt", "geben",
+        // Modal particles and adverbs
+        "mal", "denn", "halt", "eben", "etwa", "eigentlich", "wohl", "ganz", "recht", "ziemlich", "etwas", "eher",
+        // Articles and pronouns
+        "alle", "alles", "jeder", "jede", "jedes", "diesem", "dieser", "dieses", "andere", "anderen", "anderer"
     };
     
     // English stop words (extended)
@@ -20,7 +28,16 @@ public static class RelevanceAnalyzer
         "how", "can", "is", "are", "was", "were", "will", "would", "could", "should", "must", "have", "has", "had", "do", "does", "did", "get", "got",
         "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "their", "our",
         "if", "that", "because", "when", "where", "why", "what", "which", "who", "whose", "this", "these", "that", "those",
-        "not", "no", "yes", "very", "more", "also", "only", "just", "already", "always", "often", "sometimes", "never", "here", "there", "now", "then"
+        "not", "no", "yes", "very", "more", "also", "only", "just", "already", "always", "often", "sometimes", "never", "here", "there", "now", "then",
+        // Common verbs
+        "make", "makes", "made", "go", "goes", "went", "come", "comes", "came",
+        "say", "says", "said", "tell", "tells", "told", 
+        // Modal auxiliaries
+        "may", "might", "shall", "ought",
+        // Determiners and quantifiers
+        "all", "any", "some", "many", "few", "several", "each", "every", "other", "another", "such", "same",
+        // Question words extensions
+        "whom", "whenever", "wherever"
     };
 
     // Combined synonyms for German and English terms
