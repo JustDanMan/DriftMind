@@ -1,0 +1,63 @@
+# CODEOWNERS for DriftMind Project
+# This file defines who owns different parts of the codebase
+# Users mentioned here will be automatically requested for review when PRs are opened
+
+# Global ownership - JustDanMan owns everything by default
+* @JustDanMan
+
+# Core application files
+/Program.cs @JustDanMan
+/appsettings*.json @JustDanMan
+/DriftMind.csproj @JustDanMan
+/DriftMind.sln @JustDanMan
+
+# Service layer - Critical business logic
+/Services/ @JustDanMan
+/Services/ChatService.cs @JustDanMan
+/Services/SearchOrchestrationService.cs @JustDanMan
+/Services/DocumentProcessingService.cs @JustDanMan
+/Services/DownloadService.cs @JustDanMan
+
+# Security-critical services
+/Services/BlobStorageService.cs @JustDanMan
+/Services/SearchService.cs @JustDanMan
+/Services/EmbeddingService.cs @JustDanMan
+
+# Data models and DTOs
+/Models/ @JustDanMan
+/DTOs/ @JustDanMan
+
+# Configuration and infrastructure
+/.github/ @JustDanMan
+/.github/dependabot.yml @JustDanMan
+/.github/workflows/ @JustDanMan
+/Dockerfile @JustDanMan
+
+# Documentation
+/README.md @JustDanMan
+/*.md @JustDanMan
+
+# API testing files
+/DriftMind.http @JustDanMan
+/*.http @JustDanMan
+
+# Build and deployment
+/bin/ @JustDanMan
+/obj/ @JustDanMan
+
+# Properties and launch settings
+/Properties/ @JustDanMan
+/Properties/launchSettings.json @JustDanMan
+
+# Specific file types that require careful review
+*.csproj @JustDanMan
+*.sln @JustDanMan
+*.json @JustDanMan
+
+# Security-sensitive files
+appsettings.Development.json @JustDanMan
+appsettings.Production.json @JustDanMan
+
+# Any changes to dependency management
+**/packages.lock.json @JustDanMan
+global.json @JustDanMan

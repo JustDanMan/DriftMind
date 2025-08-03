@@ -7,8 +7,6 @@ updates:
       interval: "daily"
       time: "06:00"
     open-pull-requests-limit: 15
-    reviewers:
-      - "JustDanMan"
     assignees:
       - "JustDanMan"
     commit-message:
@@ -53,8 +51,6 @@ updates:
       day: "monday"
       time: "06:00"
     open-pull-requests-limit: 5
-    reviewers:
-      - "JustDanMan"
     assignees:
       - "JustDanMan"
     commit-message:
@@ -70,8 +66,6 @@ updates:
       interval: "daily"
       time: "06:00"
     open-pull-requests-limit: 5
-    reviewers:
-      - "JustDanMan"
     assignees:
       - "JustDanMan"
     commit-message:
