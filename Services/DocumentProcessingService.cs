@@ -103,15 +103,31 @@ public class DocumentProcessingService : IDocumentProcessingService
                 }
                 else
                 {
-                    _logger.LogWarning("Failed to upload file {FileName} to blob storage: {Error}", 
+                    _logger.LogError("Failed to upload file {FileName} to blob storage: {Error}", 
                         request.File.FileName, uploadResult.ErrorMessage);
-                    // Continue processing even if blob upload fails
+                    return new UploadTextResponse
+                    {
+                        DocumentId = documentId,
+                        Success = false,
+                        Message = $"Failed to upload file '{request.File.FileName}' to blob storage: {uploadResult.ErrorMessage}",
+                        FileName = request.File.FileName,
+                        FileType = Path.GetExtension(request.File.FileName),
+                        FileSizeBytes = request.File.Length
+                    };
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error uploading file {FileName} to blob storage", request.File.FileName);
-                // Continue processing even if blob upload fails
+                return new UploadTextResponse
+                {
+                    DocumentId = documentId,
+                    Success = false,
+                    Message = $"Error uploading file '{request.File.FileName}' to blob storage: {ex.Message}",
+                    FileName = request.File.FileName,
+                    FileType = Path.GetExtension(request.File.FileName),
+                    FileSizeBytes = request.File.Length
+                };
             }
 
             // 3. Extract text from file
@@ -156,13 +172,61 @@ public class DocumentProcessingService : IDocumentProcessingService
                     }
                     else
                     {
-                        _logger.LogWarning("Failed to save extracted text from {FileName} to blob storage: {Error}", 
+                        _logger.LogError("Failed to save extracted text from {FileName} to blob storage: {Error}", 
                             request.File.FileName, textUploadResult.ErrorMessage);
+                        
+                        // Cleanup: Delete the original file that was already uploaded
+                        try
+                        {
+                            if (!string.IsNullOrEmpty(blobPath))
+                            {
+                                await _blobStorageService.DeleteFileAsync(blobPath);
+                                _logger.LogInformation("Cleaned up original file {BlobPath} due to text upload failure", blobPath);
+                            }
+                        }
+                        catch (Exception cleanupEx)
+                        {
+                            _logger.LogWarning(cleanupEx, "Failed to cleanup original file {BlobPath} after text upload failure", blobPath);
+                        }
+                        
+                        return new UploadTextResponse
+                        {
+                            DocumentId = documentId,
+                            Success = false,
+                            Message = $"Failed to save extracted text from '{request.File.FileName}' to blob storage: {textUploadResult.ErrorMessage}",
+                            FileName = request.File.FileName,
+                            FileType = Path.GetExtension(request.File.FileName),
+                            FileSizeBytes = request.File.Length
+                        };
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error saving extracted text from {FileName} to blob storage", request.File.FileName);
+                    
+                    // Cleanup: Delete the original file that was already uploaded
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(blobPath))
+                        {
+                            await _blobStorageService.DeleteFileAsync(blobPath);
+                            _logger.LogInformation("Cleaned up original file {BlobPath} due to text upload error", blobPath);
+                        }
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Failed to cleanup original file {BlobPath} after text upload error", blobPath);
+                    }
+                    
+                    return new UploadTextResponse
+                    {
+                        DocumentId = documentId,
+                        Success = false,
+                        Message = $"Error saving extracted text from '{request.File.FileName}' to blob storage: {ex.Message}",
+                        FileName = request.File.FileName,
+                        FileType = Path.GetExtension(request.File.FileName),
+                        FileSizeBytes = request.File.Length
+                    };
                 }
             }
 
@@ -291,25 +355,76 @@ public class DocumentProcessingService : IDocumentProcessingService
             }
             else
             {
-                _logger.LogWarning("Indexing for document {DocumentId} was not completely successful", docId);
+                _logger.LogError("Indexing for document {DocumentId} failed", docId);
+                
+                // Cleanup: Delete blob files if indexing fails
+                await CleanupBlobFilesAsync(blobPath, textContentBlobPath, docId);
+                
                 return new UploadTextResponse
                 {
                     DocumentId = docId,
-                    ChunksCreated = chunks.Count,
+                    ChunksCreated = 0,
                     Success = false,
-                    Message = "Text was processed, but indexing was not completely successful."
+                    Message = "Document processing failed during indexing. All uploaded files have been cleaned up."
                 };
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing text for document {DocumentId}", documentId ?? "unknown");
+            
+            // Cleanup: Delete blob files if processing fails
+            var docIdForCleanup = documentId ?? Guid.NewGuid().ToString();
+            await CleanupBlobFilesAsync(blobPath, textContentBlobPath, docIdForCleanup);
+            
             return new UploadTextResponse
             {
                 DocumentId = documentId ?? "unknown",
                 Success = false,
-                Message = $"Error during processing: {ex.Message}"
+                Message = $"Error processing text: {ex.Message}. All uploaded files have been cleaned up."
             };
+        }
+    }
+
+    private async Task CleanupBlobFilesAsync(string? blobPath, string? textContentBlobPath, string documentId)
+    {
+        var cleanupTasks = new List<Task>();
+        
+        if (!string.IsNullOrEmpty(blobPath))
+        {
+            cleanupTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await _blobStorageService.DeleteFileAsync(blobPath);
+                    _logger.LogInformation("Cleaned up original file {BlobPath} for document {DocumentId}", blobPath, documentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to cleanup original file {BlobPath} for document {DocumentId}", blobPath, documentId);
+                }
+            }));
+        }
+        
+        if (!string.IsNullOrEmpty(textContentBlobPath))
+        {
+            cleanupTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await _blobStorageService.DeleteFileAsync(textContentBlobPath);
+                    _logger.LogInformation("Cleaned up text content file {TextBlobPath} for document {DocumentId}", textContentBlobPath, documentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to cleanup text content file {TextBlobPath} for document {DocumentId}", textContentBlobPath, documentId);
+                }
+            }));
+        }
+        
+        if (cleanupTasks.Any())
+        {
+            await Task.WhenAll(cleanupTasks);
         }
     }
 
