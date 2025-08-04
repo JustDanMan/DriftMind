@@ -38,10 +38,12 @@ public class DocumentProcessingService : IDocumentProcessingService
 
     public async Task<UploadTextResponse> ProcessFileAsync(UploadFileRequest request)
     {
+        var documentId = request.DocumentId ?? Guid.NewGuid().ToString();
+        string? blobPath = null;
+        string? textContentBlobPath = null;
+        
         try
         {
-            var documentId = request.DocumentId ?? Guid.NewGuid().ToString();
-            
             _logger.LogInformation("Processing file {FileName} for document {DocumentId}", 
                 request.File.FileName, documentId);
 
@@ -73,7 +75,6 @@ public class DocumentProcessingService : IDocumentProcessingService
             }
 
             // 2. Save original file to blob storage
-            string? blobPath = null;
             string? contentType = null;
             try
             {
@@ -134,6 +135,20 @@ public class DocumentProcessingService : IDocumentProcessingService
             var extractResult = await _fileProcessingService.ExtractTextFromFileAsync(request.File);
             if (!extractResult.Success)
             {
+                // Cleanup: Delete the original file that was already uploaded
+                try
+                {
+                    if (!string.IsNullOrEmpty(blobPath))
+                    {
+                        await _blobStorageService.DeleteFileAsync(blobPath);
+                        _logger.LogInformation("Cleaned up original file {BlobPath} due to text extraction failure", blobPath);
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "Failed to cleanup original file {BlobPath} after text extraction failure", blobPath);
+                }
+                
                 return new UploadTextResponse
                 {
                     DocumentId = documentId,
@@ -146,7 +161,6 @@ public class DocumentProcessingService : IDocumentProcessingService
             }
 
             // 3.1. Save extracted text content to blob storage for PDF/Word files
-            string? textContentBlobPath = null;
             if (!IsDirectTextFile(request.File.FileName))
             {
                 try
@@ -266,11 +280,15 @@ public class DocumentProcessingService : IDocumentProcessingService
         {
             _logger.LogError(ex, "Error processing file {FileName} for document {DocumentId}", 
                 request.File.FileName, request.DocumentId);
+            
+            // Critical: Cleanup any uploaded blobs if processing fails at any point
+            await CleanupBlobFilesAsync(blobPath, textContentBlobPath, documentId);
+            
             return new UploadTextResponse
             {
-                DocumentId = request.DocumentId ?? "unknown",
+                DocumentId = documentId,
                 Success = false,
-                Message = $"Error during file processing: {ex.Message}",
+                Message = $"Error during file processing: {ex.Message}. All uploaded files have been cleaned up.",
                 FileName = request.File.FileName,
                 FileType = Path.GetExtension(request.File.FileName),
                 FileSizeBytes = request.File.Length
@@ -344,7 +362,72 @@ public class DocumentProcessingService : IDocumentProcessingService
 
             if (indexingSuccess)
             {
-                _logger.LogInformation("Document {DocumentId} successfully processed and indexed", docId);
+                // 4.1. Verify blob files still exist after indexing (safety check)
+                var blobValidationFailed = false;
+                var blobValidationErrors = new List<string>();
+                
+                if (!string.IsNullOrEmpty(blobPath))
+                {
+                    try
+                    {
+                        var originalFileExists = await _blobStorageService.FileExistsAsync(blobPath);
+                        if (!originalFileExists)
+                        {
+                            blobValidationFailed = true;
+                            blobValidationErrors.Add($"Original file {blobPath} no longer exists in blob storage");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        blobValidationFailed = true;
+                        blobValidationErrors.Add($"Failed to verify original file {blobPath}: {ex.Message}");
+                    }
+                }
+                
+                if (!string.IsNullOrEmpty(textContentBlobPath))
+                {
+                    try
+                    {
+                        var textFileExists = await _blobStorageService.FileExistsAsync(textContentBlobPath);
+                        if (!textFileExists)
+                        {
+                            blobValidationFailed = true;
+                            blobValidationErrors.Add($"Text content file {textContentBlobPath} no longer exists in blob storage");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        blobValidationFailed = true;
+                        blobValidationErrors.Add($"Failed to verify text content file {textContentBlobPath}: {ex.Message}");
+                    }
+                }
+                
+                if (blobValidationFailed)
+                {
+                    _logger.LogError("Blob validation failed after successful indexing for document {DocumentId}: {Errors}", 
+                        docId, string.Join(", ", blobValidationErrors));
+                    
+                    // Critical: Remove the index entries since blob files are missing
+                    try
+                    {
+                        await _searchService.DeleteDocumentAsync(docId);
+                        _logger.LogInformation("Removed index entries for document {DocumentId} due to missing blob files", docId);
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        _logger.LogError(deleteEx, "Failed to cleanup index entries for document {DocumentId} after blob validation failure", docId);
+                    }
+                    
+                    return new UploadTextResponse
+                    {
+                        DocumentId = docId,
+                        ChunksCreated = 0,
+                        Success = false,
+                        Message = $"Document processing failed: {string.Join(", ", blobValidationErrors)}. Index entries have been cleaned up."
+                    };
+                }
+                
+                _logger.LogInformation("Document {DocumentId} successfully processed and indexed with valid blob references", docId);
                 return new UploadTextResponse
                 {
                     DocumentId = docId,
