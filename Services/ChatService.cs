@@ -185,9 +185,11 @@ public class ChatService : IChatService
             _logger.LogInformation("Generating answer from chat history only for query: {Query}", query);
 
             var systemPrompt = @"
-You are a helpful assistant. Answer the user's question based on the previous chat history.
-If the chat history contains no relevant information for the current question, state this politely.
-Respond in German in a natural, understandable style.";
+You are a helpful assistant. Answer the user's question ONLY based on the previous chat history.
+If the chat history contains no relevant information for the current question, you MUST state that you cannot answer the question because no relevant information is available in the chat history or uploaded documents. 
+DO NOT use your general knowledge or training data to answer questions.
+IMPORTANT: Do not correct false statements using your general knowledge. Only address information that is actually present in the chat history. If a user makes an incorrect statement that is not addressed in the chat history, do not provide corrections."
+;
 
             var messages = new List<OpenAI.Chat.ChatMessage>();
             messages.Add(new SystemChatMessage(systemPrompt));
@@ -342,6 +344,8 @@ IMPORTANT RULES:
 8. If the relevance score is low (<0.5), mention that the information may not be directly related
 9. Also accept sources with medium relevance scores (0.3-0.5) as usable
 10. Combine information from multiple sources when they complement each other
+11. NEVER correct false statements using your general knowledge - only use sources or chat history to address incorrect information
+12. If a user makes a false claim that is not addressed in the sources or chat history, ignore the false claim and focus only on what you can answer from the available information
 
 Format your answer clearly with source citations.";
     }
