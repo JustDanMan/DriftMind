@@ -1,5 +1,6 @@
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using DriftMind.DTOs;
 using System.Text;
 
 namespace DriftMind.Services;
@@ -22,6 +23,7 @@ public interface IBlobStorageService
     Task<bool> FileExistsAsync(string fileName);
     Task<bool> DeleteFileAsync(string fileName);
     Task<BlobDownloadInfo> DownloadFileAsync(string fileName);
+    Task<BlobDownloadWithMetadataResult> DownloadFileWithMetadataAsync(string fileName);
 }
 
 public class BlobStorageService : IBlobStorageService
@@ -318,6 +320,38 @@ public class BlobStorageService : IBlobStorageService
         {
             _logger.LogError(ex, "Failed to download blob '{BlobName}'", blobName);
             throw;
+        }
+    }
+
+    public async Task<BlobDownloadWithMetadataResult> DownloadFileWithMetadataAsync(string blobName)
+    {
+        try
+        {
+            var blobClient = _containerClient.GetBlobClient(blobName);
+            
+            // Get properties with metadata
+            var propertiesResponse = await blobClient.GetPropertiesAsync();
+            var downloadResponse = await blobClient.DownloadAsync();
+            
+            _logger.LogDebug("Downloaded blob '{BlobName}' with metadata", blobName);
+            
+            return new BlobDownloadWithMetadataResult
+            {
+                FileStream = downloadResponse.Value.Content,
+                ContentType = propertiesResponse.Value.ContentType ?? "application/octet-stream",
+                FileSizeBytes = propertiesResponse.Value.ContentLength,
+                Metadata = propertiesResponse.Value.Metadata.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+                Success = true
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to download blob '{BlobName}' with metadata", blobName);
+            return new BlobDownloadWithMetadataResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message
+            };
         }
     }
 }

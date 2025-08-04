@@ -196,21 +196,70 @@ public class DownloadService : IDownloadService
                 };
             }
             
-            // 2. Datei aus Blob Storage abrufen
-            var blobDownloadInfo = await _blobStorage.DownloadFileAsync(blobPath);
+            // 2. Datei aus Blob Storage mit Metadaten abrufen
+            var blobDownloadResult = await _blobStorage.DownloadFileWithMetadataAsync(blobPath);
             
-            // 3. Log download activity (simplified)
+            if (!blobDownloadResult.Success)
+            {
+                return new DownloadFileResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Failed to download file: {blobDownloadResult.ErrorMessage}"
+                };
+            }
+            
+            // 3. Get original filename with priority order: Base64 encoded (original with umlauts) > sanitized > search index > blob path
+            string originalFileName;
+            
+            // Debug: Log all available metadata
+            _logger.LogInformation("Available blob metadata for document {DocumentId}: {Metadata}", 
+                documentId, string.Join(", ", blobDownloadResult.Metadata.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+            
+            // Try to get the original filename with umlauts from Base64 encoded metadata
+            if (blobDownloadResult.Metadata.TryGetValue("OriginalFileNameBase64", out var base64FileName) && 
+                !string.IsNullOrEmpty(base64FileName))
+            {
+                try
+                {
+                    _logger.LogInformation("Found Base64 encoded filename: {Base64FileName}", base64FileName);
+                    var decodedBytes = Convert.FromBase64String(base64FileName);
+                    originalFileName = Encoding.UTF8.GetString(decodedBytes);
+                    _logger.LogInformation("Successfully restored original filename with umlauts from Base64: {OriginalFileName}", originalFileName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to decode Base64 filename '{Base64FileName}', falling back to sanitized version", base64FileName);
+                    // Fallback to sanitized version
+                    originalFileName = blobDownloadResult.Metadata.GetValueOrDefault("OriginalFileName") 
+                                    ?? document.OriginalFileName 
+                                    ?? Path.GetFileName(blobPath);
+                    _logger.LogInformation("Using fallback filename: {FallbackFileName}", originalFileName);
+                }
+            }
+            else
+            {
+                // Fallback to sanitized version or search index
+                originalFileName = blobDownloadResult.Metadata.GetValueOrDefault("OriginalFileName") 
+                                ?? document.OriginalFileName 
+                                ?? Path.GetFileName(blobPath);
+                _logger.LogInformation("No Base64 filename found, using fallback: {FallbackFileName} (Source: {Source})", 
+                    originalFileName, 
+                    blobDownloadResult.Metadata.ContainsKey("OriginalFileName") ? "BlobMetadata" : 
+                    !string.IsNullOrEmpty(document.OriginalFileName) ? "SearchIndex" : "BlobPath");
+            }
+            
+            // 4. Log download activity (simplified)
             await LogDownloadActivityAsync(documentId, null, true);
             
             _logger.LogInformation("File download initiated for document {DocumentId}, file: {FileName}",
-                documentId, document.OriginalFileName ?? "unknown");
+                documentId, originalFileName);
             
             return new DownloadFileResult
             {
-                FileStream = blobDownloadInfo.Content,
-                FileName = document.OriginalFileName ?? Path.GetFileName(blobPath),
-                ContentType = blobDownloadInfo.Details.ContentType ?? "application/octet-stream",
-                FileSizeBytes = blobDownloadInfo.Details.ContentLength,
+                FileStream = blobDownloadResult.FileStream,
+                FileName = originalFileName,
+                ContentType = blobDownloadResult.ContentType,
+                FileSizeBytes = blobDownloadResult.FileSizeBytes,
                 Success = true
             };
         }

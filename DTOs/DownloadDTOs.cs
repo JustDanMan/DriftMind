@@ -47,6 +47,19 @@ public class DownloadFileResult
 }
 
 /// <summary>
+/// Blob download result with metadata
+/// </summary>
+public class BlobDownloadWithMetadataResult
+{
+    public Stream? FileStream { get; set; }
+    public string ContentType { get; set; } = string.Empty;
+    public long FileSizeBytes { get; set; }
+    public Dictionary<string, string> Metadata { get; set; } = new();
+    public bool Success { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
 /// Download information added to search results
 /// </summary>
 public class DownloadInfo

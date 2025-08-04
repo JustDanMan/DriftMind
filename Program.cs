@@ -343,7 +343,8 @@ app.MapPost("/download/file", async (TokenDownloadRequest request, IDownloadServ
             return Results.NotFound(new { error = fileResult.ErrorMessage ?? "File not found" });
         }
         
-        return Results.File(fileResult.FileStream, fileResult.ContentType, fileResult.FileName);
+        // Use Results.Stream for better control over Content-Disposition header with umlauts
+        return Results.Stream(fileResult.FileStream, fileResult.ContentType, fileResult.FileName, enableRangeProcessing: true);
     }
     catch (Exception ex)
     {

@@ -1,5 +1,6 @@
 using DriftMind.DTOs;
 using DriftMind.Models;
+using System.Text;
 
 namespace DriftMind.Services;
 
@@ -80,7 +81,10 @@ public class DocumentProcessingService : IDocumentProcessingService
             {
                 // Determine correct content type based on file extension
                 contentType = GetCorrectContentType(request.File.FileName, request.File.ContentType);
-                var fileName = $"{documentId}_{request.File.FileName}";
+                
+                // Sanitize filename for blob storage - remove non-ASCII characters
+                var sanitizedFileName = SanitizeFileNameForBlobStorage(request.File.FileName);
+                var fileName = $"{documentId}_{sanitizedFileName}";
                 
                 // Upload file to blob storage
                 using var fileStream = request.File.OpenReadStream();
@@ -91,7 +95,8 @@ public class DocumentProcessingService : IDocumentProcessingService
                     new Dictionary<string, string>
                     {
                         ["DocumentId"] = documentId,
-                        ["OriginalFileName"] = request.File.FileName,
+                        ["OriginalFileName"] = SanitizeMetadataValue(request.File.FileName), // Sanitized for compatibility
+                        ["OriginalFileNameBase64"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(request.File.FileName)), // Original with umlauts
                         ["UploadedAt"] = DateTimeOffset.UtcNow.ToString("O"),
                         ["FileSize"] = request.File.Length.ToString()
                     });
@@ -165,14 +170,16 @@ public class DocumentProcessingService : IDocumentProcessingService
             {
                 try
                 {
+                    var sanitizedTextFileName = SanitizeFileNameForBlobStorage(request.File.FileName);
                     var textUploadResult = await _blobStorageService.UploadTextContentAsync(
-                        $"{documentId}_{request.File.FileName}",
+                        $"{documentId}_{sanitizedTextFileName}",
                         extractResult.Text,
                         request.File.FileName,
                         new Dictionary<string, string>
                         {
                             ["DocumentId"] = documentId,
-                            ["OriginalFileName"] = request.File.FileName,
+                            ["OriginalFileName"] = SanitizeMetadataValue(request.File.FileName),
+                            ["OriginalFileNameBase64"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(request.File.FileName)), // Original with umlauts
                             ["ExtractedAt"] = DateTimeOffset.UtcNow.ToString("O"),
                             ["OriginalFileSize"] = request.File.Length.ToString(),
                             ["TextLength"] = extractResult.Text.Length.ToString()
@@ -551,5 +558,129 @@ public class DocumentProcessingService : IDocumentProcessingService
 
         // Fall back to client content type or generic binary
         return clientContentType ?? "application/octet-stream";
+    }
+
+    private string SanitizeFileNameForBlobStorage(string fileName)
+    {
+        if (string.IsNullOrEmpty(fileName))
+            return "unknown_file";
+
+        var result = new StringBuilder();
+        
+        // Process each character and replace umlauts properly
+        foreach (char c in fileName)
+        {
+            if (c <= 127) // ASCII range
+            {
+                // Replace problematic characters for file systems
+                switch (c)
+                {
+                    case '<':
+                    case '>':
+                    case ':':
+                    case '"':
+                    case '|':
+                    case '?':
+                    case '*':
+                    case '/':
+                    case '\\':
+                    case ' ': // Replace spaces with underscores
+                        result.Append('_');
+                        break;
+                    default:
+                        result.Append(c);
+                        break;
+                }
+            }
+            else
+            {
+                // Replace common German umlauts and special characters
+                switch (c)
+                {
+                    case 'ä': result.Append("ae"); break;
+                    case 'ö': result.Append("oe"); break;
+                    case 'ü': result.Append("ue"); break;
+                    case 'Ä': result.Append("Ae"); break;
+                    case 'Ö': result.Append("Oe"); break;
+                    case 'Ü': result.Append("Ue"); break;
+                    case 'ß': result.Append("ss"); break;
+                    default:
+                        // For other non-ASCII characters, try ASCII conversion or use underscore
+                        var ascii = System.Text.Encoding.ASCII.GetString(
+                            System.Text.Encoding.ASCII.GetBytes(c.ToString()));
+                        if (ascii != "?")
+                        {
+                            result.Append(ascii);
+                        }
+                        else
+                        {
+                            result.Append('_'); // Fallback for truly unknown characters
+                        }
+                        break;
+                }
+            }
+        }
+
+        var sanitized = result.ToString();
+
+        // Remove multiple consecutive underscores
+        while (sanitized.Contains("__"))
+        {
+            sanitized = sanitized.Replace("__", "_");
+        }
+
+        // Trim underscores from start and end
+        sanitized = sanitized.Trim('_');
+
+        // Ensure we have a valid filename
+        if (string.IsNullOrEmpty(sanitized))
+        {
+            sanitized = "sanitized_file";
+        }
+
+        return sanitized;
+    }
+
+    private string SanitizeMetadataValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        // HTTP headers must contain only ASCII characters
+        // Replace non-ASCII characters with their closest ASCII equivalent or remove them
+        var result = new StringBuilder();
+        foreach (char c in value)
+        {
+            if (c <= 127) // ASCII range
+            {
+                result.Append(c);
+            }
+            else
+            {
+                // Replace common German umlauts and special characters
+                switch (c)
+                {
+                    case 'ä': result.Append("ae"); break;
+                    case 'ö': result.Append("oe"); break;
+                    case 'ü': result.Append("ue"); break;
+                    case 'Ä': result.Append("Ae"); break;
+                    case 'Ö': result.Append("Oe"); break;
+                    case 'Ü': result.Append("Ue"); break;
+                    case 'ß': result.Append("ss"); break;
+                    default:
+                        // For other non-ASCII characters, try ASCII conversion
+                        var ascii = System.Text.Encoding.ASCII.GetString(
+                            System.Text.Encoding.ASCII.GetBytes(c.ToString()));
+                        if (ascii != "?")
+                        {
+                            result.Append(ascii);
+                        }
+                        // If ASCII conversion fails, skip the character
+                        break;
+                }
+            }
+        }
+
+        return result.ToString();
     }
 }
