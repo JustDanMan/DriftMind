@@ -168,17 +168,30 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 // If no search results but we have chat history, try enhanced search with history context
                 if (request.ChatHistory?.Any() == true)
                 {
-                    var enhancedResults = await TryEnhancedSearchWithHistoryAsync(request, searchQuery, queryEmbedding);
-                    if (enhancedResults.Any())
+                    // Only try enhanced search if the chat history contains substantial document-related keywords
+                    var historyKeywords = ExtractKeywordsFromChatHistory(request.ChatHistory);
+                    if (historyKeywords.Count >= 2) // Require at least 2 meaningful keywords from document discussions
                     {
-                        _logger.LogInformation("Enhanced search with history found {ResultCount} results", enhancedResults.Count);
-                        response.Results = enhancedResults;
-                        response.GeneratedAnswer = await _chatService.GenerateAnswerWithHistoryAsync(
-                            request.Query, enhancedResults, request.ChatHistory);
+                        var enhancedResults = await TryEnhancedSearchWithHistoryAsync(request, searchQuery, queryEmbedding);
+                        if (enhancedResults.Any())
+                        {
+                            _logger.LogInformation("Enhanced search with history found {ResultCount} results using keywords: {Keywords}", 
+                                enhancedResults.Count, string.Join(", ", historyKeywords.Take(5)));
+                            response.Results = enhancedResults;
+                            response.GeneratedAnswer = await _chatService.GenerateAnswerWithHistoryAsync(
+                                request.Query, enhancedResults, request.ChatHistory);
+                        }
+                        else
+                        {
+                            // Fallback to history-only answer
+                            response.GeneratedAnswer = await _chatService.GenerateAnswerWithHistoryAsync(
+                                request.Query, new List<SearchResult>(), request.ChatHistory);
+                        }
                     }
                     else
                     {
-                        // Fallback to history-only answer
+                        // Not enough document-related context in history - use history-only answer
+                        _logger.LogInformation("Insufficient document-related keywords in chat history ({Count}), using history-only approach", historyKeywords.Count);
                         response.GeneratedAnswer = await _chatService.GenerateAnswerWithHistoryAsync(
                             request.Query, new List<SearchResult>(), request.ChatHistory);
                     }
@@ -295,16 +308,45 @@ public class SearchOrchestrationService : ISearchOrchestrationService
         {
             _logger.LogInformation("Attempting enhanced search with chat history context");
 
-            // Extract keywords and document references from chat history
+            // Determine if this is a follow-up question
+            bool isFollowUpQuestion = IsFollowUpQuestion(request.Query);
+            
+            // Extract keywords and document references from chat history with reduced scope for follow-ups
             var historyKeywords = ExtractKeywordsFromChatHistory(request.ChatHistory);
-            var enhancedQuery = CombineQueryWithHistoryContext(searchQuery, historyKeywords);
+            var documentReferences = ExtractDocumentReferencesFromChatHistory(request.ChatHistory);
+            
+            // For follow-up questions, prioritize current query terms over history accumulation
+            List<string> allSearchTerms;
+            if (isFollowUpQuestion)
+            {
+                var followUpTerms = ExtractFollowUpTerms(request.Query);
+                // For follow-ups: prioritize current query + relevant document references, limit history keywords
+                allSearchTerms = followUpTerms
+                    .Concat(documentReferences.Take(2)) // Limit document references
+                    .Concat(historyKeywords.Take(3))    // Significantly limit history keywords
+                    .Distinct()
+                    .ToList();
+            }
+            else
+            {
+                // For new questions: use full context
+                var followUpTerms = ExtractFollowUpTerms(request.Query);
+                allSearchTerms = historyKeywords.Concat(followUpTerms).Concat(documentReferences).Distinct().ToList();
+            }
+            
+            var enhancedQuery = CombineQueryWithHistoryContext(searchQuery, allSearchTerms);
 
-            _logger.LogDebug("Enhanced query with history context: '{EnhancedQuery}'", enhancedQuery);
+            _logger.LogDebug("Enhanced query with history context: '{EnhancedQuery}' (IsFollowUp: {IsFollowUp}, Keywords: {HistoryCount}, Doc refs: {DocCount})", 
+                enhancedQuery, isFollowUpQuestion, historyKeywords.Count, documentReferences.Count);
+
+            // For follow-up questions, use more focused search parameters
+            int searchMultiplier = isFollowUpQuestion ? 3 : 6; // Reduced multiplier for follow-ups
+            int maxResults = isFollowUpQuestion ? Math.Min(request.MaxResults * 2, 50) : Math.Min(request.MaxResults * 4, 100);
 
             // Perform a broader search with relaxed constraints
             var searchResults = request.UseSemanticSearch 
-                ? await _searchService.HybridSearchAsync(enhancedQuery, queryEmbedding, request.MaxResults * 6, request.DocumentId) // Increased multiplier
-                : await _searchService.SearchAsync(enhancedQuery, Math.Min(request.MaxResults * 4, 100)); // Increased results
+                ? await _searchService.HybridSearchAsync(enhancedQuery, queryEmbedding, request.MaxResults * searchMultiplier, request.DocumentId)
+                : await _searchService.SearchAsync(enhancedQuery, maxResults);
 
             var resultsList = searchResults.GetResults().ToList();
             
@@ -323,6 +365,28 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                         : await _searchService.SearchAsync(historyBasedQuery, Math.Min(request.MaxResults * 3, 75));
                     
                     resultsList = searchResults.GetResults().ToList();
+                }
+            }
+
+            // If still no results and we have document references, try searching with document names + current query
+            if (!resultsList.Any() && documentReferences.Any())
+            {
+                foreach (var docRef in documentReferences.Take(3))
+                {
+                    var docSpecificQuery = $"{searchQuery} {docRef}";
+                    _logger.LogDebug("Trying document-specific search: '{DocQuery}'", docSpecificQuery);
+                    
+                    var docEmbedding = await _embeddingService.GenerateEmbeddingAsync(docSpecificQuery);
+                    var docSearchResults = request.UseSemanticSearch 
+                        ? await _searchService.HybridSearchAsync(docSpecificQuery, docEmbedding, request.MaxResults * 2, request.DocumentId)
+                        : await _searchService.SearchAsync(docSpecificQuery, request.MaxResults);
+                    
+                    var docResults = docSearchResults.GetResults().ToList();
+                    if (docResults.Any())
+                    {
+                        resultsList.AddRange(docResults);
+                        _logger.LogDebug("Document-specific search for '{DocRef}' found {Count} results", docRef, docResults.Count);
+                    }
                 }
             }
 
@@ -357,6 +421,13 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 if (ContainsHistoryContext(result.Document.Content, historyKeywords))
                 {
                     combinedScore *= 1.2; // 20% boost for history relevance
+                }
+
+                // Additional boost if document was specifically referenced in chat history
+                if (DocumentIsReferencedInHistory(result.Document.DocumentId, result.Document.Metadata, documentReferences))
+                {
+                    combinedScore *= 1.3; // 30% boost for document history relevance
+                    _logger.LogDebug("Applied document reference boost to {DocumentId}", result.Document.DocumentId);
                 }
 
                 var searchResult = new SearchResult
@@ -408,34 +479,198 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     }
 
     /// <summary>
-    /// Extracts relevant keywords from chat history
+    /// Extracts relevant keywords from chat history with decay for older messages
     /// </summary>
     private List<string> ExtractKeywordsFromChatHistory(List<ChatMessage>? chatHistory)
     {
         if (chatHistory?.Any() != true) return new List<string>();
 
-        var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var keywordWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         
-        // Get recent messages (last 5)
-        var recentMessages = chatHistory.TakeLast(5);
+        // Get recent messages but limit to last 3 for follow-up questions (instead of 5)
+        var recentMessages = chatHistory.TakeLast(3).ToList();
         
-        foreach (var message in recentMessages)
+        for (int i = 0; i < recentMessages.Count; i++)
         {
+            var message = recentMessages[i];
             if (string.IsNullOrWhiteSpace(message.Content)) continue;
+
+            // Apply decay factor: newer messages get higher weight
+            double messageWeight = Math.Pow(0.7, recentMessages.Count - i - 1); // 1.0, 0.7, 0.49
 
             // Extract potential keywords (words longer than 3 characters)
             var words = message.Content
                 .Split(new[] { ' ', '\n', '\t', '.', ',', ';', ':', '!', '?' }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(w => w.Length > 3 && !IsStopWord(w))
-                .Take(10); // Limit to prevent too many keywords
+                .Where(w => w.Length > 3 && !IsStopWord(w) && !IsFollowUpWord(w))
+                .Take(8); // Reduced from 10
 
             foreach (var word in words)
             {
-                keywords.Add(word.Trim());
+                var cleanWord = word.Trim();
+                if (keywordWeights.ContainsKey(cleanWord))
+                {
+                    keywordWeights[cleanWord] += messageWeight;
+                }
+                else
+                {
+                    keywordWeights[cleanWord] = messageWeight;
+                }
             }
         }
 
-        return keywords.Take(15).ToList(); // Limit total keywords
+        // Return top keywords by weight, limited to 8 (reduced from 15)
+        return keywordWeights
+            .OrderByDescending(kv => kv.Value)
+            .Take(8)
+            .Select(kv => kv.Key)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Extracts document IDs and filenames from chat history sources - limited for follow-up questions
+    /// </summary>
+    private List<string> ExtractDocumentReferencesFromChatHistory(List<ChatMessage>? chatHistory)
+    {
+        if (chatHistory?.Any() != true) return new List<string>();
+
+        var documentReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        // Get recent assistant messages (last 2 instead of 3) that might contain source references
+        var recentAssistantMessages = chatHistory
+            .Where(m => m.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase))
+            .TakeLast(2); // Reduced from 3 to 2
+        
+        foreach (var message in recentAssistantMessages)
+        {
+            if (string.IsNullOrWhiteSpace(message.Content)) continue;
+
+            // Look for source references in German format: "Quelle 1:", "Laut Quelle", etc.
+            var lines = message.Content.Split('\n');
+            bool inSourcesSection = false;
+            
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+                
+                // Check if we're in the sources section
+                if (trimmedLine.StartsWith("**Quellen:**", StringComparison.OrdinalIgnoreCase) ||
+                    trimmedLine.StartsWith("Quellen:", StringComparison.OrdinalIgnoreCase))
+                {
+                    inSourcesSection = true;
+                    continue;
+                }
+                
+                // If we're in sources section, extract document names
+                if (inSourcesSection && trimmedLine.StartsWith("- **Quelle", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Extract filename from source line
+                    // Format: "- **Quelle 1:** [DocumentName.pdf] - [Topic]"
+                    var parts = trimmedLine.Split(new[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        var filename = parts[1].Trim();
+                        if (!string.IsNullOrEmpty(filename))
+                        {
+                            documentReferences.Add(filename);
+                            
+                            // Also add filename without extension for broader matching
+                            var nameWithoutExt = Path.GetFileNameWithoutExtension(filename);
+                            if (!string.IsNullOrEmpty(nameWithoutExt))
+                            {
+                                documentReferences.Add(nameWithoutExt);
+                            }
+                        }
+                    }
+                }
+                
+                // Also look for inline source references like "Laut Quelle 1"
+                if (trimmedLine.Contains("Quelle ", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Extract any capitalized words that might be document names
+                    var words = trimmedLine.Split(' ');
+                    foreach (var word in words)
+                    {
+                        if (word.Length > 4 && char.IsUpper(word[0]) && 
+                            !word.StartsWith("Quelle", StringComparison.OrdinalIgnoreCase) &&
+                            !word.StartsWith("Laut", StringComparison.OrdinalIgnoreCase))
+                        {
+                            documentReferences.Add(word.Trim(':', '.', ',', ';'));
+                        }
+                    }
+                }
+            }
+        }
+
+        _logger.LogDebug("Extracted {Count} document references from chat history: {References}", 
+            documentReferences.Count, string.Join(", ", documentReferences.Take(3))); // Reduced logging from 5 to 3
+
+        return documentReferences.Take(5).ToList(); // Limit to top 5 document references
+    }
+
+    /// <summary>
+    /// Checks if a document is referenced in the chat history
+    /// </summary>
+    private bool DocumentIsReferencedInHistory(string documentId, string? metadata, List<string> documentReferences)
+    {
+        if (!documentReferences.Any()) return false;
+
+        // Check against document ID
+        if (documentReferences.Any(dr => documentId.Contains(dr, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // Check against metadata (filename) - handle different metadata formats safely
+        if (!string.IsNullOrEmpty(metadata))
+        {
+            try
+            {
+                // Try to parse as JSON first
+                if (metadata.StartsWith("{") && metadata.EndsWith("}"))
+                {
+                    var metadataObj = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(metadata);
+                    if (metadataObj?.TryGetValue("originalFileName", out var filenameObj) == true)
+                    {
+                        var filename = filenameObj.ToString();
+                        if (!string.IsNullOrEmpty(filename) && CheckFilenameMatch(filename, documentReferences))
+                            return true;
+                    }
+                }
+                else
+                {
+                    // If not JSON, treat metadata as plain text filename
+                    if (CheckFilenameMatch(metadata, documentReferences))
+                        return true;
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // If JSON parsing fails, treat metadata as plain text
+                if (CheckFilenameMatch(metadata, documentReferences))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a filename matches any document reference
+    /// </summary>
+    private bool CheckFilenameMatch(string filename, List<string> documentReferences)
+    {
+        if (string.IsNullOrEmpty(filename)) return false;
+
+        // Direct filename check
+        if (documentReferences.Any(dr => filename.Contains(dr, StringComparison.OrdinalIgnoreCase) ||
+                                         dr.Contains(filename, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // Check filename without extension
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(filename);
+        if (!string.IsNullOrEmpty(nameWithoutExt) && 
+            documentReferences.Any(dr => dr.Equals(nameWithoutExt, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return false;
     }
 
     /// <summary>
@@ -473,15 +708,97 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     }
 
     /// <summary>
-    /// Combines current query with history context
+    /// Extracts terms from follow-up questions that might help find related documents
     /// </summary>
-    private string CombineQueryWithHistoryContext(string originalQuery, List<string> historyKeywords)
+    private List<string> ExtractFollowUpTerms(string query)
     {
-        if (!historyKeywords.Any()) return originalQuery;
+        if (string.IsNullOrWhiteSpace(query)) return new List<string>();
 
-        // Combine original query with most relevant history keywords
-        var topKeywords = historyKeywords.Take(5);
-        return $"{originalQuery} {string.Join(" ", topKeywords)}";
+        var terms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        // Extract meaningful terms from the current query
+        var words = query
+            .Split(new[] { ' ', ',', '.', '?', '!', ';', ':' }, StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 3 && !IsStopWord(w) && !IsFollowUpWord(w))
+            .Take(5); // Limit to prevent too many terms
+
+        foreach (var word in words)
+        {
+            terms.Add(word.Trim());
+        }
+
+        return terms.ToList();
+    }
+
+    /// <summary>
+    /// Checks if a word is a typical follow-up question word that shouldn't be used for search
+    /// </summary>
+    private bool IsFollowUpWord(string word)
+    {
+        var followUpWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // German follow-up words (only connector/question words, not content terms)
+            "mehr", "weitere", "andere", "zusätzliche", "gehe", "bitte", "kannst", "könntest", "würdest", "sagen", "erzählen", "erklären", "erläutern", "beschreiben", "Details", "Einzelheiten", "Aspekte", "Seiten", "Punkte",
+            // English follow-up words  
+            "more", "additional", "further", "other", "please", "could", "would", "tell", "explain", "describe", "elaborate", "details", "aspects"
+        };
+
+        return followUpWords.Contains(word);
+    }
+
+    /// <summary>
+    /// Determines if the current query is a follow-up question based on typical patterns
+    /// </summary>
+    private bool IsFollowUpQuestion(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return false;
+
+        var queryLower = query.ToLowerInvariant();
+        
+        // German follow-up patterns
+        var followUpPatterns = new[]
+        {
+            "gehe mehr", "mehr auf", "weitere", "zusätzliche", "andere aspekte", "andere seiten", 
+            "nachteile", "vorteile", "probleme", "schwierigkeiten", "details", "einzelheiten",
+            "kannst du", "könntest du", "würdest du", "bitte", "erklär", "beschreib", "erläuter",
+            "was sind", "welche sind", "wie sieht", "wie ist"
+        };
+
+        // English follow-up patterns
+        var englishPatterns = new[]
+        {
+            "tell me more", "more about", "additional", "further", "other aspects", "downsides", 
+            "advantages", "disadvantages", "problems", "issues", "details", "could you", "would you",
+            "please", "explain", "describe", "elaborate", "what are", "which are", "how is"
+        };
+
+        var allPatterns = followUpPatterns.Concat(englishPatterns);
+        
+        return allPatterns.Any(pattern => queryLower.Contains(pattern));
+    }
+
+    /// <summary>
+    /// Combines current query with history context, with different strategies for follow-up questions
+    /// </summary>
+    private string CombineQueryWithHistoryContext(string originalQuery, List<string> searchTerms)
+    {
+        if (!searchTerms.Any()) return originalQuery;
+
+        // For follow-up questions, be more conservative with term combination
+        bool isFollowUp = IsFollowUpQuestion(originalQuery);
+        
+        if (isFollowUp)
+        {
+            // For follow-ups: use fewer terms and prioritize original query
+            var limitedTerms = searchTerms.Take(2); // Reduced from 5 to 2
+            return $"{originalQuery} {string.Join(" ", limitedTerms)}";
+        }
+        else
+        {
+            // For new questions: use more context terms
+            var topTerms = searchTerms.Take(4); // Reduced from 5 to 4
+            return $"{originalQuery} {string.Join(" ", topTerms)}";
+        }
     }
 
     /// <summary>
