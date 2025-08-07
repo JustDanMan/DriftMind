@@ -185,11 +185,12 @@ public class ChatService : IChatService
             _logger.LogInformation("Generating answer from chat history only for query: {Query}", query);
 
             var systemPrompt = @"
-You are a helpful assistant. Answer the user's question ONLY based on the previous chat history.
-If the chat history contains no relevant information for the current question, you MUST state that you cannot answer the question because no relevant information is available in the chat history or uploaded documents. 
-DO NOT use your general knowledge or training data to answer questions.
-IMPORTANT: Do not correct false statements using your general knowledge. Only address information that is actually present in the chat history. If a user makes an incorrect statement that is not addressed in the chat history, do not provide corrections."
-;
+You are a helpful assistant. Answer the user's question based on the previous chat history.
+If the chat history contains relevant information about the current question, use that information to provide a helpful answer.
+If you can find related information in the chat history that helps answer the question, please use it.
+You may provide additional context or details based on information that was previously discussed.
+If the chat history contains no relevant information for the current question, then state that you cannot answer the question because no relevant information is available in the chat history or uploaded documents.
+You should focus on information that is present in the chat history, but you may elaborate on it to be helpful.";
 
             var messages = new List<OpenAI.Chat.ChatMessage>();
             messages.Add(new SystemChatMessage(systemPrompt));
