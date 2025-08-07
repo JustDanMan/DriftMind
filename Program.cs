@@ -46,6 +46,7 @@ builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IFileProcessingService, FileProcessingService>();
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IQueryExpansionService, QueryExpansionService>();
 builder.Services.AddScoped<ISearchOrchestrationService, SearchOrchestrationService>();
 builder.Services.AddScoped<IDocumentManagementService, DocumentManagementService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
@@ -112,7 +113,7 @@ app.MapPost("/upload", async (IFormFile file, string? documentId, string? metada
 .DisableAntiforgery();
 
 // Search Endpoint
-app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService searchService) =>
+app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService searchService, IConfiguration configuration) =>
 {
     if (string.IsNullOrWhiteSpace(request.Query))
     {
@@ -132,6 +133,17 @@ app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService
             Success = false,
             Message = "MaxResults must be between 1 and 50."
         });
+    }
+
+    // Apply default configuration values if needed
+    if (request.EnableQueryExpansion == false) // Only override if explicitly set to false
+    {
+        // Keep the user's setting
+    }
+    else
+    {
+        // Use configuration default if not explicitly set
+        request.EnableQueryExpansion = configuration.GetValue<bool>("QueryExpansion:EnabledByDefault", true);
     }
 
     var response = await searchService.SearchAsync(request);

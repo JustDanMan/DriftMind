@@ -15,11 +15,13 @@ public class SearchRequest
     public string? DocumentId { get; set; }
     public bool IncludeAnswer { get; set; } = true;
     public List<ChatMessage>? ChatHistory { get; set; } = null;
+    public bool EnableQueryExpansion { get; set; } = true;
 }
 
 public class SearchResponse
 {
     public string Query { get; set; } = string.Empty;
+    public string? ExpandedQuery { get; set; } = null;
     public List<SearchResult> Results { get; set; } = new();
     public string? GeneratedAnswer { get; set; }
     public bool Success { get; set; }

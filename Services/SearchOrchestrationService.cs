@@ -13,6 +13,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     private readonly ISearchService _searchService;
     private readonly IEmbeddingService _embeddingService;
     private readonly IChatService _chatService;
+    private readonly IQueryExpansionService _queryExpansionService;
     private readonly ILogger<SearchOrchestrationService> _logger;
     private readonly IConfiguration _configuration;
 
@@ -20,12 +21,14 @@ public class SearchOrchestrationService : ISearchOrchestrationService
         ISearchService searchService,
         IEmbeddingService embeddingService,
         IChatService chatService,
+        IQueryExpansionService queryExpansionService,
         ILogger<SearchOrchestrationService> logger,
         IConfiguration configuration)
     {
         _searchService = searchService;
         _embeddingService = embeddingService;
         _chatService = chatService;
+        _queryExpansionService = queryExpansionService;
         _logger = logger;
         _configuration = configuration;
     }
@@ -46,16 +49,31 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 };
             }
 
-            // 1. Generate embedding for the search query
-            var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(request.Query);
+            // 1. Query expansion if enabled
+            var searchQuery = request.Query;
+            string? expandedQuery = null;
+            
+            if (request.EnableQueryExpansion)
+            {
+                expandedQuery = await _queryExpansionService.ExpandQueryAsync(request.Query, request.ChatHistory);
+                if (!string.Equals(expandedQuery, request.Query, StringComparison.OrdinalIgnoreCase))
+                {
+                    searchQuery = expandedQuery;
+                    _logger.LogInformation("Query expanded from '{OriginalQuery}' to '{ExpandedQuery}'", 
+                        request.Query, expandedQuery);
+                }
+            }
+
+            // 2. Generate embedding for the search query (using expanded query if available)
+            var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(searchQuery);
             
             _logger.LogInformation("Embedding generated for search query");
 
-            // 2. Perform hybrid search with more results for filtering
-            var multiplier = request.Query.Length < 20 ? 4 : 3; // More results for short queries
+            // 3. Perform hybrid search with more results for filtering
+            var multiplier = searchQuery.Length < 20 ? 4 : 3; // More results for short queries
             var searchResults = request.UseSemanticSearch 
-                ? await _searchService.HybridSearchAsync(request.Query, queryEmbedding, request.MaxResults * multiplier, request.DocumentId)
-                : await _searchService.SearchAsync(request.Query, Math.Min(request.MaxResults * 2, 50));
+                ? await _searchService.HybridSearchAsync(searchQuery, queryEmbedding, request.MaxResults * multiplier, request.DocumentId)
+                : await _searchService.SearchAsync(searchQuery, Math.Min(request.MaxResults * 2, 50));
 
             var resultsList = searchResults.GetResults().ToList();
             _logger.LogInformation("Search results received: {ResultCount} for query: '{Query}'", resultsList.Count, request.Query);
@@ -125,6 +143,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             var response = new SearchResponse
             {
                 Query = request.Query,
+                ExpandedQuery = expandedQuery != request.Query ? expandedQuery : null,
                 Results = diversifiedResults,
                 Success = true,
                 TotalResults = diversifiedResults.Count
