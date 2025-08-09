@@ -61,7 +61,7 @@ public class DownloadService : IDownloadService
             var exp = expiration ?? _defaultExpiration;
             var expiresAt = DateTime.UtcNow.Add(exp);
             
-            // 2. Token-Daten erstellen (vereinfacht ohne Auth)
+            // 2. Create token data (simplified without auth)
             var tokenData = new SecureTokenData
             {
                 DocumentId = documentId,
@@ -171,7 +171,7 @@ public class DownloadService : IDownloadService
     {
         try
         {
-            // 1. Dokument-Info aus Search Index abrufen
+            // 1. Get document info from search index
             var searchResult = await _searchService.SearchAsync($"documentId:{documentId}", 1);
             var results = searchResult.GetResults().ToList();
             
@@ -196,7 +196,7 @@ public class DownloadService : IDownloadService
                 };
             }
             
-            // 2. Datei aus Blob Storage mit Metadaten abrufen
+            // 2. Download file from blob storage with metadata
             var blobDownloadResult = await _blobStorage.DownloadFileWithMetadataAsync(blobPath);
             
             if (!blobDownloadResult.Success)
@@ -302,7 +302,7 @@ public class DownloadService : IDownloadService
     {
         try
         {
-            // Dokument in Search Index suchen
+            // Search for document in search index
             var searchResult = await _searchService.SearchAsync($"documentId:{documentId}", 1);
             var results = searchResult.GetResults().ToList();
             
@@ -339,13 +339,13 @@ public class DownloadService : IDownloadService
     {
         try
         {
-            // 1. Token-Daten zu JSON serialisieren
+            // 1. Serialize token data to JSON
             var tokenJson = JsonSerializer.Serialize(tokenData);
             var tokenBytes = Encoding.UTF8.GetBytes(tokenJson);
             
             _logger.LogDebug("Generated token JSON: {TokenJson}", tokenJson);
             
-            // 2. Token Base64-kodieren
+            // 2. Base64 encode token
             var tokenBase64 = Convert.ToBase64String(tokenBytes);
             
             // 3. Generate HMAC signature for manipulation protection
@@ -353,7 +353,7 @@ public class DownloadService : IDownloadService
             var signatureBytes = hmac.ComputeHash(tokenBytes);
             var signature = Convert.ToBase64String(signatureBytes);
             
-            // 4. Token + Signatur kombinieren
+            // 4. Combine token + signature
             var secureToken = $"{tokenBase64}.{signature}";
             
             _logger.LogDebug("Generated secure token: {TokenPreview}... (length: {Length})", 
@@ -383,7 +383,7 @@ public class DownloadService : IDownloadService
             
             _logger.LogDebug("ValidateSecureToken called with token length: {Length}", token.Length);
             
-            // 1. Token und Signatur trennen
+            // 1. Split token and signature
             var parts = token.Split('.');
             _logger.LogDebug("Token split into {Parts} parts", parts.Length);
             
@@ -399,10 +399,10 @@ public class DownloadService : IDownloadService
             _logger.LogDebug("Token Base64 length: {TokenLength}, Signature length: {SignatureLength}", 
                 tokenBase64.Length, signature.Length);
             
-            // 2. Token dekodieren
+            // 2. Decode token
             var tokenBytes = Convert.FromBase64String(tokenBase64);
             
-            // 3. Signatur validieren
+            // 3. Validate signature
             using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_tokenSecret));
             var expectedSignatureBytes = hmac.ComputeHash(tokenBytes);
             var expectedSignature = Convert.ToBase64String(expectedSignatureBytes);
@@ -416,7 +416,7 @@ public class DownloadService : IDownloadService
                 return null;
             }
             
-            // 4. Token-Daten deserialisieren
+            // 4. Deserialize token data
             var tokenJson = Encoding.UTF8.GetString(tokenBytes);
             var tokenData = JsonSerializer.Deserialize<SecureTokenData>(tokenJson);
             

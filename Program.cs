@@ -329,7 +329,7 @@ app.MapPost("/download/file", async (TokenDownloadRequest request, IDownloadServ
         return Results.BadRequest(new { error = "Download token is required" });
     }
     
-    // 1. Token validieren
+    // 1. Validate token
     var validation = await downloadService.ValidateDownloadTokenAsync(request.Token);
     if (!validation.IsValid)
     {
@@ -346,7 +346,7 @@ app.MapPost("/download/file", async (TokenDownloadRequest request, IDownloadServ
             statusCode: 401); // Unauthorized
     }
     
-    // 2. Datei herunterladen
+    // 2. Download file
     try
     {
         var fileResult = await downloadService.GetFileForDownloadAsync(validation.DocumentId);
