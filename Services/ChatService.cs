@@ -26,7 +26,7 @@ public class ChatService : IChatService
         IConfiguration configuration, 
         ILogger<ChatService> logger)
     {
-        _chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-4o";
+        _chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-5-chat";
         _chatClient = azureOpenAIClient.GetChatClient(_chatModel);
         _blobStorageService = blobStorageService;
         _configuration = configuration;
@@ -212,18 +212,27 @@ STRICT RULES:
 4. You may elaborate, reframe, and expand on previously found document information to be helpful
 5. Be transparent when adding explanatory context vs. referencing previous document findings
 6. Always respond in German
+7. Do NOT ask follow-up questions at the end of your response
+8. Do NOT offer to provide more information, summaries, or additional help
+9. When referencing previous document information, always mention the exact document filename if available in chat history
 
 FORMATTING REQUIREMENTS:
-- Use **bold text** for section headers and key topics (more professional than ## headers)
-- Use clear headings and bullet points where appropriate
-- Structure your answer logically with clear paragraphs
-- Use numbered lists for sequential information
-- Use bullet points for related items
-- Separate different topics with clear line breaks
-- Make citations prominent and easy to identify
-- Reference previous discussion with phrases like ""Wie bereits aus den Dokumenten erwähnt..."" or ""Basierend auf den zuvor gefundenen Informationen...""
+- Structure your response with clear paragraphs and logical flow
+- Use bold text (**text**) for important key terms, numbers, and concepts
+- Use italics (*text*) for document titles, technical terms, or emphasis
+- Create clear topic separation with line breaks between different subjects
+- Use bullet points (•) for listing multiple related items or facts
+- Use numbered lists (1., 2., 3.) for sequential processes, steps, or prioritized information
+- Reference previous conversations with phrases like ""Wie bereits aus den Dokumenten erwähnt..."" or ""Basierend auf den zuvor gefundenen Informationen...""
+- Keep paragraphs concise and focused on one main idea
+- Use consistent German terminology throughout the response
 
-Remember: You are helping users access and explore their document knowledge through conversation history. Focus on being helpful with follow-up questions about documented topics.";
+CITATION FORMAT:
+End with a **Quellen:** section when referencing previous document information:
+- **Frühere Diskussion:** [Referenced topic from chat history]
+- ***[Document filename]:*** [If specific document name is mentioned in chat history]
+
+Remember: You are helping users access and explore their document knowledge through conversation history. Always include exact document filenames when referencing previous findings and never ask follow-up questions.";
 
             var messages = new List<OpenAI.Chat.ChatMessage>();
             messages.Add(new SystemChatMessage(systemPrompt));
@@ -386,24 +395,26 @@ STRICT RULES:
 6. If the relevance score is low (<0.5), mention that the information may not be directly related
 7. Combine information from multiple sources when they complement each other
 8. Be transparent about when you're adding explanatory context vs. document content
+9. Do NOT ask follow-up questions at the end of your response
+10. Do NOT offer to provide more information, summaries, or additional help
 
 FORMATTING REQUIREMENTS:
-- Use **bold text** for section headers and key topics (more professional than ## headers)
-- Use bullet points (•) for listing related information
-- Use numbered lists (1., 2., 3.) for sequential steps or processes
-- Use bold text (**text**) to highlight important terms, numbers, or key concepts
-- Use italics (*text*) for document titles or emphasis
-- Separate different topics with clear line breaks
-- Start with a brief summary if the answer is complex
-- Use tables or structured formats for data when appropriate
-- Make the answer scannable with good visual hierarchy
+- Structure your response with clear paragraphs and logical flow
+- Use bold text (**text**) for important key terms, numbers, and concepts
+- Use italics (*text*) for document titles, technical terms, or emphasis
+- Create clear topic separation with line breaks between different subjects
+- Use bullet points (•) for listing multiple related items or facts
+- Use numbered lists (1., 2., 3.) for sequential processes, steps, or prioritized information
+- Start complex answers with a brief introductory sentence
+- Keep paragraphs concise and focused on one main idea
+- Use consistent German terminology throughout the response
 
 CITATION FORMAT:
-End with a **Quellen:** section listing the sources used:
-- **Quelle 1:** [Document name] - [Relevant excerpt or topic]
-- **Quelle 2:** [Document name] - [Relevant excerpt or topic]
+End with a **Quellen:** section listing the sources used with their exact document filenames:
+- **Quelle 1:** *[Exact document filename]* - [Relevant excerpt or topic]
+- **Quelle 2:** *[Exact document filename]* - [Relevant excerpt or topic]
 
-Remember: DriftMind is a tool to access document knowledge, not a general AI assistant. Prioritize clarity and readability.";
+Remember: DriftMind is a tool to access document knowledge, not a general AI assistant. Always include exact document filenames in citations and never ask follow-up questions.";
     }
 
     private string BuildUserPrompt(string query, string context)
@@ -442,25 +453,27 @@ STRICT RULES:
 5. Always respond in German in a natural, professional style
 6. Establish references to previous conversation when relevant
 7. Be transparent about when you're adding explanatory context vs. document content
+8. Do NOT ask follow-up questions at the end of your response
+9. Do NOT offer to provide more information, summaries, or additional help
 
 FORMATTING REQUIREMENTS:
-- Use **bold text** for section headers and key topics (more professional than ## headers)
-- Use bullet points (•) for listing related information
-- Use numbered lists (1., 2., 3.) for sequential steps or processes
-- Use bold text (**text**) to highlight important terms, numbers, or key concepts
-- Use italics (*text*) for document titles or emphasis
-- Separate different topics with clear line breaks
-- Reference previous conversation with phrases like ""Wie bereits erwähnt..."" or ""Aufbauend auf unserer vorherigen Diskussion...""
-- Make connections between current sources and previous information explicit
-- Use tables or structured formats for data when appropriate
-- Create a clear visual hierarchy for easy scanning
+- Structure your response with clear paragraphs and logical flow
+- Use bold text (**text**) for important key terms, numbers, and concepts
+- Use italics (*text*) for document titles, technical terms, or emphasis
+- Create clear topic separation with line breaks between different subjects
+- Use bullet points (•) for listing multiple related items or facts
+- Use numbered lists (1., 2., 3.) for sequential processes, steps, or prioritized information
+- Reference previous conversations naturally with phrases like ""Wie bereits erwähnt..."" or ""Aufbauend auf der vorherigen Diskussion...""
+- Keep paragraphs concise and focused on one main idea
+- Use consistent German terminology throughout the response
 
 CITATION FORMAT:
-End with a **Quellen:** section. Include current sources and reference chat history only when it was actually used:
-- List current document sources when available
-- Only mention ""Frühere Diskussion"" if chat history information was actually utilized
+End with a **Quellen:** section. Include current sources with exact document filenames and reference chat history only when it was actually used:
+- **Quelle 1:** *[Exact document filename]* - [Relevant excerpt or topic]
+- **Quelle 2:** *[Exact document filename]* - [Relevant excerpt or topic]  
+- **Frühere Diskussion:** [Only if chat history information was actually utilized]
 
-Remember: DriftMind helps users access their document knowledge through well-structured, readable responses.";
+Remember: DriftMind helps users access their document knowledge. Always include exact document filenames in citations and never ask follow-up questions.";
     }
 
     private string BuildUserPromptWithContext(string query, string context)

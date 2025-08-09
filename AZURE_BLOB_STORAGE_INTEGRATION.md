@@ -2,7 +2,7 @@
 
 ## 🎯 **Overview**
 
-The DriftMind system has been successfully extended with Azure Blob Storage to store original files and provide GPT-4o with enhanced context for answer generation.
+The DriftMind system has been successfully extended with Azure Blob Storage to store original files and provide GPT-5 Chat with enhanced context for answer generation.
 
 ## 📋 **Implemented Features**
 
@@ -18,8 +18,8 @@ The DriftMind system has been successfully extended with Azure Blob Storage to s
 - **Fault Tolerance**: Processing continues even if blob upload fails
 
 ### 3. **Improved Chat Service**
-- **Original File Access**: GPT-4o receives both relevant chunks and complete original documents
-- **PDF/Word Support**: Extracted text from PDF and Word files is stored separately and provided to GPT-4o
+- **Original File Access**: GPT-5 Chat receives both relevant chunks and complete original documents
+- **PDF/Word Support**: Extracted text from PDF and Word files is stored separately and provided to GPT-5 Chat
 - **Intelligent File Type Handling**: Text files loaded directly, binary files use extracted text content
 - **Intelligent Deduplication**: Same files are loaded only once per request
 - **Enhanced Context**: Improved answer quality through full-text context
@@ -70,15 +70,15 @@ public class SearchResult
 }
 ```
 
-## 🚀 **GPT-4o Improvements**
+## 🚀 **GPT-5 Chat Improvements**
 
 ### Before
-- GPT-4o received only relevant text chunks
+- GPT-5 Chat received only relevant text chunks
 - Limited context for complex questions
 - Potentially missed connections
 
 ### After
-- GPT-4o receives both relevant chunks and complete original documents
+- GPT-5 Chat receives both relevant chunks and complete original documents
 - **PDF/Word files**: Extracted text content is stored separately and provided for full context
 - **Text files**: Original content is loaded directly from blob storage
 - Extended context for better answer quality
@@ -145,7 +145,7 @@ curl -X POST "http://localhost:8081/api/upload/file" \
 
 ## 🎉 **Benefits of Integration**
 
-- **📚 Complete Context**: GPT-4o has access to full documents including PDF and Word files
+- **📚 Complete Context**: GPT-5 Chat has access to full documents including PDF and Word files
 - **🔍 Better Answers**: Increased answer quality through extended context from all file types
 - **� PDF/Word Support**: Extracted text from complex documents provided to AI for analysis
 - **�💾 Persistent Storage**: Both original files and extracted text content are preserved

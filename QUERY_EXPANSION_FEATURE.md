@@ -11,7 +11,7 @@ The Query Expansion feature automatically enhances short, vague, or context-poor
    - Word count (configurable, default ≤ 3 words)
    - Presence of vague language ("infos", "was ist", "tell me", etc.)
 
-2. **AI-Powered Expansion**: Uses GPT-4o to expand queries by:
+2. **AI-Powered Expansion**: Uses GPT-5 Chat to expand queries by:
    - Adding relevant synonyms and related terms
    - Incorporating context from chat history if available
    - Maintaining the original query intent
@@ -115,7 +115,7 @@ The system detects queries that need expansion using:
 - Expansion adds ~500-1000ms per query (AI call)
 - Only applied to queries that need it (smart detection)
 - Can be disabled per request if needed
-- Uses existing GPT-4o deployment (no additional costs)
+- Uses existing GPT-5 Chat deployment (no additional costs)
 
 ## Testing
 

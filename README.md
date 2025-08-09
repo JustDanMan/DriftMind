@@ -49,7 +49,7 @@ An ASP.NET Core Web API that extracts text from files, splits it into chunks, cr
 
 ### 1. Azure OpenAI Setup
 1. Create an Azure OpenAI Resource
-2. Deploy the `text-embedding-ada-002` and `gpt-4o` model
+2. Deploy the `text-embedding-ada-002` and `gpt-5-chat` model
 3. Note down endpoint and API key
 
 ### 2. Azure AI Search Setup
@@ -64,7 +64,7 @@ An ASP.NET Core Web API that extracts text from files, splits it into chunks, cr
     "Endpoint": "https://your-openai-resource.openai.azure.com/",
     "ApiKey": "your-api-key",
     "EmbeddingDeploymentName": "text-embedding-ada-002",
-    "ChatDeploymentName": "gpt-4o"
+    "ChatDeploymentName": "gpt-5-chat"
   },
   "AzureSearch": {
     "Endpoint": "https://your-search-service.search.windows.net",
@@ -130,7 +130,7 @@ Uploads a file, extracts text, splits it into chunks, and creates embeddings.
 
 ### POST /search
 
-Searches documents semantically and generates answers with GPT-4o.
+Searches documents semantically and generates answers with GPT-5 Chat.
 
 **Request Body:**
 ```json
@@ -176,7 +176,7 @@ Searches documents semantically and generates answers with GPT-4o.
       "fileSizeBytes": 245760
     }
   ],
-  "generatedAnswer": "GPT-4o generated answer based on search results and chat history...",
+  "generatedAnswer": "GPT-5 Chat generated answer based on search results and chat history...",
   "success": true,
   "totalResults": 5
 }
@@ -187,7 +187,7 @@ Searches documents semantically and generates answers with GPT-4o.
 - `maxResults` (optional, default: 10, max: 50): Maximum number of results
 - `useSemanticSearch` (optional, default: true): Use semantic vector search
 - `documentId` (optional): Filter to specific document
-- `includeAnswer` (optional, default: true): Generate GPT-4o answer
+- `includeAnswer` (optional, default: true): Generate GPT-5 Chat answer
 - `chatHistory` (optional): Array of previous conversation messages for context
 
 #### Chat History Integration
@@ -644,7 +644,7 @@ async function downloadFile(documentId) {
 - **ISearchService**: Azure AI Search integration with vector search
 - **IFileProcessingService**: File content extraction for multiple formats
 - **IDocumentProcessingService**: Orchestration of the entire upload workflow (text and files)
-- **IChatService**: GPT-4o integration for answer generation
+- **IChatService**: GPT-5 Chat integration for answer generation
 - **ISearchOrchestrationService**: Orchestration of search and answer processes
 - **IDocumentManagementService**: Document listing and metadata management
 - **IDataMigrationService**: Storage optimization and data migration
@@ -800,7 +800,7 @@ Final Score = (Vector Score × 0.7) + (Text Relevance × 0.3)
 
 #### Single Score-Based Filter
 - **Consistent Threshold**: Score ≥ 0.25 for both display and answer generation
-- **Purpose**: Ensures same results are shown to user and used for GPT-4o
+- **Purpose**: Ensures same results are shown to user and used for GPT-5 Chat
 - **Benefits**: Eliminates inconsistencies between filtering stages
 
 #### Score Calculation
@@ -811,7 +811,7 @@ Final Score = (Vector Score × 0.7) + (Text Relevance × 0.3)
 
 ### Answer Generation Quality
 
-#### Source Filtering for GPT-4o
+#### Source Filtering for GPT-5 Chat
 - **Minimum Score**: Configurable via `ChatService:MinScoreForAnswer` (default: 0.25)
 - **Maximum Sources**: Configurable via `ChatService:MaxSourcesForAnswer` (default: 10 in development, 8 in production)
 - **Source Diversification**: Maximum 1 chunk per document to ensure source variety (10 different documents instead of 10 chunks from 1 document)
@@ -844,7 +844,7 @@ var diversifiedSources = searchResults
 - **Broader Coverage**: Information from multiple documents instead of deep diving into one
 - **Balanced Perspective**: Prevents over-representation of a single source
 - **Efficient Context Usage**: Complete files are loaded anyway, so chunk diversity is more valuable than chunk quantity
-- **Better Answers**: GPT-4o receives varied perspectives from different sources
+- **Better Answers**: GPT-5 Chat receives varied perspectives from different sources
 
 **Logging Example:**
 ```
@@ -1116,7 +1116,7 @@ grep "vector search" logs/app.log
 - Verify embeddings capture semantic meaning correctly
 - Review chunk size and overlap settings
 
-#### Problem: Poor answer quality from GPT-4o
+#### Problem: Poor answer quality from GPT-5 Chat
 **Solutions:**
 - Increase `MinScoreForAnswer` to 0.4 for higher quality sources
 - Reduce `MAX_SOURCES_FOR_ANSWER` to 3 for more focused context

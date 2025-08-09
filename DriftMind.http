@@ -65,7 +65,7 @@ Project documentation markdown
 
 ###
 
-# Search with GPT-4o Answer Generation
+# Search with GPT-5 Chat Answer Generation
 POST {{DriftMind_HostAddress}}/search
 Content-Type: application/json
 

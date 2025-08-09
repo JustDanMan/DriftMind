@@ -155,8 +155,8 @@ app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService
 })
 .WithName("SearchDocuments")
 .WithOpenApi()
-.WithSummary("Searches documents and generates an answer with GPT-4o")
-.WithDescription("This endpoint performs a semantic search in the Azure AI Search database and generates an answer with GPT-4o based on the found documents.");
+.WithSummary("Searches documents and generates an answer with GPT-5 Chat")
+.WithDescription("This endpoint performs a semantic search in the Azure AI Search database and generates an answer with GPT-5 Chat based on the found documents.");
 
 // Documents List Endpoint
 app.MapPost("/documents", async (DocumentListRequest request, IDocumentManagementService documentService) =>

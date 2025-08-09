@@ -22,7 +22,7 @@ public class QueryExpansionService : IQueryExpansionService
         IConfiguration configuration,
         ILogger<QueryExpansionService> logger)
     {
-        var chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-4o";
+        var chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-5-chat";
         _chatClient = azureOpenAIClient.GetChatClient(chatModel);
         _configuration = configuration;
         _logger = logger;

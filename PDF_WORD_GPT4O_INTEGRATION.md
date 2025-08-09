@@ -1,14 +1,14 @@
-# 🎯 PDF & Word Files GPT-4o Context Integration
+# 🎯 PDF & Word Files GPT-5 Chat Context Integration
 
 ## ✅ **Successfully Implemented!**
 
-The DriftMind system has been extended to make **PDF and Word files fully available as context for GPT-4o**.
+The DriftMind system has been extended to make **PDF and Word files fully available as context for GPT-5 Chat**.
 
 ## 🔧 **How it works:**
 
 ### **1. Dual Storage**
 - **Original File**: PDF/Word is stored in Blob Storage
-- **Extracted Text**: Separate text blob for GPT-4o context
+- **Extracted Text**: Separate text blob for GPT-5 Chat context
 
 ### **2. Intelligent Processing**
 ```
@@ -26,7 +26,7 @@ PDF/Word Upload → Text Extraction → Blob Storage:
 
 ### **BlobStorageService**
 - `UploadTextContentAsync()` - Stores extracted text
-- `GetTextContentAsync()` - Loads text content for GPT-4o
+- `GetTextContentAsync()` - Loads text content for GPT-5 Chat
 - UTF-8 encoding for correct character representation
 
 ### **DocumentChunk Model**
@@ -48,25 +48,25 @@ public class DocumentChunk {
 
 ### **Before:**
 - PDF/Word: Only text chunks → Limited context
-- GPT-4o had no full-text access to complex documents
+- GPT-5 Chat had no full-text access to complex documents
 
 ### **After:**
 - PDF/Word: **Complete extracted text + chunks** → Maximum context
-- GPT-4o can analyze complete documents and provide precise answers
+- GPT-5 Chat can analyze complete documents and provide precise answers
 - Text files: Direct original access as before
 
 ## 🔍 **Example Workflow:**
 
 1. **PDF Upload** → `document.pdf` + `document_content.txt`
 2. **Search**: Relevant chunks found
-3. **GPT-4o Context**: 
+3. **GPT-5 Chat Context**: 
    - Relevant chunks
    - **+ Complete extracted text from PDF**
 4. **Answer**: Precise analysis with complete document context
 
 ## ✨ **Benefits:**
 
-- **📄 Complete PDF/Word Support** for GPT-4o
+- **📄 Complete PDF/Word Support** for GPT-5 Chat
 - **🧠 Better AI Answers** through extended context  
 - **⚡ Performance Optimized** through separate text storage
 - **🔄 Backward Compatible** with existing text files
