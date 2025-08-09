@@ -410,9 +410,7 @@ Remember: DriftMind is a tool to access document knowledge, not a general AI ass
     {
         return $@"Question: {query}
 
-{context}
-
-Please answer the question based only on the provided sources. If the sources don't contain relevant information for the question, please state this clearly:";
+{context}";
     }
 
     private string BuildEnhancedSystemPromptWithHistory()
@@ -467,12 +465,8 @@ Remember: DriftMind helps users access their document knowledge through well-str
 
     private string BuildUserPromptWithContext(string query, string context)
     {
-        return $@"Based on the previous chat history and the following sources, please answer the question:
+        return $@"Question: {query}
 
-Question: {query}
-
-{context}
-
-Please answer the question based on the provided sources and chat history. If the sources contain no relevant information but the chat history is helpful, use it:";
+{context}";
     }
 }
