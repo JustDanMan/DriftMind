@@ -161,7 +161,7 @@ public class ChatService : IChatService
             }
 
             // Add current query with context
-            var userPrompt = BuildUserPromptWithContext(query, context);
+            var userPrompt = BuildUserPromptWithContext(query, context, searchResults);
             messages.Add(new UserChatMessage(userPrompt));
 
             var response = await _chatClient.CompleteChatAsync(messages);
@@ -328,20 +328,46 @@ Remember: You are helping users access and explore their document knowledge thro
         for (int i = 0; i < searchResults.Count; i++)
         {
             var result = searchResults[i];
-            contextBuilder.AppendLine($"Source {i + 1} (Score: {result.Score:F2}, Document: {result.DocumentId}):");
+            
+            // Detect if this is a history-enhanced result (score > 1.0 indicates boost was applied)
+            bool isHistoryEnhanced = result.Score > 1.0;
+            
+            _logger.LogDebug("Result {Index}: Score={Score}, DocumentId={DocId}, IsHistoryEnhanced={IsEnhanced}", 
+                i+1, result.Score, result.DocumentId.Substring(0, Math.Min(8, result.DocumentId.Length)), isHistoryEnhanced);
+            
+            contextBuilder.AppendLine($"=== SOURCE {i + 1} ===");
+            
+            if (isHistoryEnhanced)
+            {
+                contextBuilder.AppendLine("🔄 HISTORY-ENHANCED SOURCE (aus vorherigem Chatverlauf identifiziert)");
+            }
+            else
+            {
+                contextBuilder.AppendLine("🔍 CURRENT SEARCH RESULT");
+            }
+            
+            contextBuilder.AppendLine($"Score: {result.Score:F2}");
+            contextBuilder.AppendLine($"Document ID: {result.DocumentId}");
             
             // Include original file context if available
             if (!string.IsNullOrEmpty(result.BlobPath) && originalFileContents.ContainsKey(result.BlobPath))
             {
                 var originalContent = originalFileContents[result.BlobPath];
-                contextBuilder.AppendLine($"Original File: {result.OriginalFileName}");
+                contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {result.OriginalFileName}");
                 contextBuilder.AppendLine("Full Document Content:");
                 contextBuilder.AppendLine(originalContent);
                 contextBuilder.AppendLine();
                 contextBuilder.AppendLine("Relevant Chunk:");
             }
+            else if (!string.IsNullOrEmpty(result.OriginalFileName))
+            {
+                contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {result.OriginalFileName}");
+            }
             
+            contextBuilder.AppendLine("CONTENT:");
             contextBuilder.AppendLine(result.Content);
+            contextBuilder.AppendLine();
+            contextBuilder.AppendLine("=== END SOURCE ===");
             contextBuilder.AppendLine();
         }
 
@@ -456,6 +482,29 @@ STRICT RULES:
 8. Do NOT ask follow-up questions at the end of your response
 9. Do NOT offer to provide more information, summaries, or additional help
 
+CITATION AND SOURCE ATTRIBUTION:
+CRITICAL: Maintain exact correspondence between information and sources!
+
+1. Each source is clearly marked with === SOURCE X === boundaries
+2. NEVER mix information from different sources in citations
+3. For current document sources: 
+   - Use format: ***[Document filename]:*** [Brief description of content]
+4. For history-enhanced sources (marked with �):
+   - Use format: ***[Document filename]:*** [Brief description of content] (aus Chatverlauf)
+5. NEVER use complex phrases like ""Aus vorheriger Diskussion relevantes Dokument"" or ""Ergänzend zu den Dokumenteninhalten""
+6. ONLY cite information that is actually present in the specific document you reference
+
+STRICT ATTRIBUTION RULES:
+- If you use information from SOURCE 1, cite the document filename from SOURCE 1
+- If you use information from SOURCE 2, cite the document filename from SOURCE 2  
+- NEVER attribute information from one source to a different source's document
+- When uncertain about source attribution, DO NOT make citations
+
+CITATION FORMAT:
+End with a simple **Quellen:** section:
+- ***Document-Name.pdf:*** [Topic/Content description]
+- ***Another-Document.pdf:*** [Topic/Content description] (aus Chatverlauf)
+
 FORMATTING REQUIREMENTS:
 - Structure your response with clear paragraphs and logical flow
 - Use bold text (**text**) for important key terms, numbers, and concepts
@@ -468,10 +517,9 @@ FORMATTING REQUIREMENTS:
 - Use consistent German terminology throughout the response
 
 CITATION FORMAT:
-End with a **Quellen:** section. Include current sources with exact document filenames and reference chat history only when it was actually used:
-- **Quelle 1:** *[Exact document filename]* - [Relevant excerpt or topic]
-- **Quelle 2:** *[Exact document filename]* - [Relevant excerpt or topic]  
-- **Frühere Diskussion:** [Only if chat history information was actually utilized]
+End with a **Quellen:** section using the original simple format:
+- ***[Document filename]:*** [Brief topic/content description]
+- ***[Document filename]:*** [Brief topic/content description] (aus Chatverlauf)
 
 Remember: DriftMind helps users access their document knowledge. Always include exact document filenames in citations and never ask follow-up questions.";
     }
@@ -481,5 +529,42 @@ Remember: DriftMind helps users access their document knowledge. Always include 
         return $@"Question: {query}
 
 {context}";
+    }
+
+    private string BuildUserPromptWithContext(string query, string context, List<SearchResult> searchResults)
+    {
+        var prompt = new StringBuilder();
+        prompt.AppendLine($"Question: {query}");
+        prompt.AppendLine();
+        
+        // Check if results contain history-enhanced sources
+        bool hasHistoryBasedResults = searchResults.Any(r => r.Score > 1.0); // History results get score boost
+        
+        if (hasHistoryBasedResults)
+        {
+            prompt.AppendLine("KRITISCHER HINWEIS: Ein Teil der folgenden Informationen stammt aus Dokumenten, die in der aktuellen Unterhaltung bereits als relevant identifiziert wurden (History-Enhanced Search).");
+            prompt.AppendLine();
+        }
+        
+        prompt.AppendLine(context);
+        
+        prompt.AppendLine();
+        prompt.AppendLine("WICHTIGE QUELLENATTRIBUTION REGELN:");
+        prompt.AppendLine("1. Verwenden Sie NUR Informationen aus den bereitgestellten Quellen");
+        prompt.AppendLine("2. Jede Quelle ist klar mit === SOURCE X === markiert");
+        prompt.AppendLine("3. Für HISTORY-ENHANCED SOURCES: Fügen Sie '(aus Chatverlauf)' am Ende hinzu");
+        prompt.AppendLine("4. Für CURRENT SEARCH RESULTS: Normale Quellenangabe ohne Zusatz");
+        prompt.AppendLine("5. Verwenden Sie nur den exakten Dateinamen aus '📄 DOCUMENT FILENAME:'");
+        prompt.AppendLine("6. NIEMALS Informationen aus einem Dokument einem anderen Dokument zuordnen!");
+        
+        if (hasHistoryBasedResults)
+        {
+            prompt.AppendLine();
+            prompt.AppendLine("HISTORY-ENHANCED SOURCE INSTRUCTIONS:");
+            prompt.AppendLine("- Format: ***filename:*** [description] (aus Chatverlauf)");
+            prompt.AppendLine("- Nur verwenden wenn die Information aus einer � HISTORY-ENHANCED SOURCE stammt");
+        }
+        
+        return prompt.ToString();
     }
 }

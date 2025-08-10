@@ -54,13 +54,18 @@ public class QueryExpansionService : IQueryExpansionService
     {
         try
         {
-            if (!ShouldExpandQuery(originalQuery))
+            // For follow-up questions with chat history, always try expansion to add context
+            bool isFollowUp = IsFollowUpQuestion(originalQuery);
+            bool hasHistory = chatHistory?.Any() == true;
+            
+            if (!ShouldExpandQuery(originalQuery) && !(isFollowUp && hasHistory))
             {
                 _logger.LogDebug("Query '{Query}' does not need expansion", originalQuery);
                 return originalQuery;
             }
 
-            _logger.LogInformation("Expanding query: '{OriginalQuery}'", originalQuery);
+            _logger.LogInformation("Expanding query: '{OriginalQuery}' (IsFollowUp: {IsFollowUp}, HasHistory: {HasHistory})", 
+                originalQuery, isFollowUp, hasHistory);
 
             var systemPrompt = BuildExpansionSystemPrompt();
             var userPrompt = BuildExpansionUserPrompt(originalQuery, chatHistory);
@@ -159,5 +164,42 @@ Output: ""integration process implementation details configuration steps setup d
 
         prompt += "\n\nExpand this query to make it more specific and searchable:";
         return prompt;
+    }
+
+    /// <summary>
+    /// Determines if the current query is a follow-up question
+    /// </summary>
+    private bool IsFollowUpQuestion(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return false;
+
+        var queryLower = query.ToLowerInvariant().Trim();
+        
+        // Only very short queries are likely follow-ups (reduced threshold)
+        if (queryLower.Length < 10 || queryLower.Split(' ').Length <= 2)
+        {
+            return true;
+        }
+
+        // German follow-up patterns - more specific patterns that indicate continuation
+        var followUpPatterns = new[]
+        {
+            "mehr über", "mehr dazu", "mehr infos", "mehr details", "weitere informationen",
+            "nachteile davon", "vorteile davon", "probleme dabei", "schwierigkeiten", 
+            "andere aspekte", "zusätzlich", "außerdem", "darüber hinaus",
+            "kannst du", "könntest du", "erklär mir", "sag mir mehr"
+        };
+
+        // Avoid misclassifying legitimate standalone questions that start with question words
+        var questionWords = new[] { "welche", "welcher", "welches", "was", "wie", "warum", "weshalb", "wo", "wann", "wer" };
+        bool startsWithQuestionWord = questionWords.Any(qw => queryLower.StartsWith(qw + " "));
+        
+        // If it starts with a question word and is reasonably long, it's likely a new question, not a follow-up
+        if (startsWithQuestionWord && queryLower.Length > 20)
+        {
+            return false;
+        }
+
+        return followUpPatterns.Any(pattern => queryLower.Contains(pattern));
     }
 }

@@ -120,6 +120,13 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     FileSizeBytes = metadata?.FileSizeBytes ?? result.Document.FileSizeBytes
                     // Download: Use POST /download/token with documentId if OriginalFileName != null
                 });
+
+                // Debug logging for missing metadata
+                if (string.IsNullOrEmpty(results.Last().OriginalFileName))
+                {
+                    _logger.LogWarning("Missing OriginalFileName for DocumentId: {DocumentId}, ChunkIndex: {ChunkIndex}, Metadata: {Metadata}", 
+                        result.Document.DocumentId, result.Document.ChunkIndex, result.Document.Metadata);
+                }
             }
             
             // 5. Apply simplified score-based filtering
@@ -149,21 +156,47 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 TotalResults = diversifiedResults.Count
             };
 
-            // 6. Generate answer with diversified results
-            if (request.IncludeAnswer && diversifiedResults.Any())
+            // 6. Enhanced search for follow-up questions and related topics
+            var finalResults = diversifiedResults;
+            if (request.ChatHistory?.Any() == true)
+            {
+                bool isFollowUp = IsFollowUpQuestion(request.Query);
+                bool isRelatedTopic = !isFollowUp && await IsRelatedTopicQuestionAsync(request.Query, request.ChatHistory);
+                
+                _logger.LogInformation("Search strategy analysis - IsFollowUp: {IsFollowUp}, IsRelatedTopic: {IsRelatedTopic}, Query: '{Query}'", 
+                    isFollowUp, isRelatedTopic, request.Query);
+                
+                if (isFollowUp || isRelatedTopic)
+                {
+                    var enhancedResults = await TryEnhancedSearchWithHistoryAsync(request, searchQuery, queryEmbedding);
+                    _logger.LogInformation("Enhanced search returned {EnhancedCount} results", enhancedResults.Count);
+                    
+                    finalResults = CombineAndPrioritizeResults(diversifiedResults, enhancedResults, request.MaxResults);
+                    
+                    if (finalResults.Count > diversifiedResults.Count)
+                    {
+                        _logger.LogInformation("{SearchType} search enhanced results from {OriginalCount} to {FinalCount}", 
+                            isFollowUp ? "Follow-up" : "Related topic", diversifiedResults.Count, finalResults.Count);
+                    }
+                }
+            }
+
+            // 7. Generate answer with final results
+            if (request.IncludeAnswer && finalResults.Any())
             {
                 // Use history-aware method if chat history is provided
                 if (request.ChatHistory?.Any() == true)
                 {
                     response.GeneratedAnswer = await _chatService.GenerateAnswerWithHistoryAsync(
-                        request.Query, diversifiedResults, request.ChatHistory);
+                        request.Query, finalResults, request.ChatHistory);
                 }
                 else
                 {
-                    response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, diversifiedResults);
+                    response.GeneratedAnswer = await _chatService.GenerateAnswerAsync(request.Query, finalResults);
                 }
+                response.Results = finalResults;
             }
-            else if (request.IncludeAnswer && !diversifiedResults.Any())
+            else if (request.IncludeAnswer && !finalResults.Any())
             {
                 // If no search results but we have chat history, try enhanced search with history context
                 if (request.ChatHistory?.Any() == true)
@@ -308,22 +341,133 @@ public class SearchOrchestrationService : ISearchOrchestrationService
         {
             _logger.LogInformation("Attempting enhanced search with chat history context");
 
-            // Determine if this is a follow-up question
+            // Determine search strategy
             bool isFollowUpQuestion = IsFollowUpQuestion(request.Query);
+            bool isRelatedTopic = !isFollowUpQuestion && await IsRelatedTopicQuestionAsync(request.Query, request.ChatHistory);
             
-            // Extract keywords and document references from chat history with reduced scope for follow-ups
+            // Extract keywords and document references from chat history
             var historyKeywords = ExtractKeywordsFromChatHistory(request.ChatHistory);
             var documentReferences = ExtractDocumentReferencesFromChatHistory(request.ChatHistory);
             
-            // For follow-up questions, prioritize current query terms over history accumulation
+            List<SearchResult> enhancedResults = new();
+            
+            // Strategy 1: For related topics, try document-specific searches first
+            if (isRelatedTopic && documentReferences.Any())
+            {
+                _logger.LogInformation("Applying related topic search strategy with {DocumentCount} document references", 
+                    documentReferences.Count);
+                
+                // Try searching within documents that were previously referenced
+                foreach (var docRef in documentReferences.Take(3))
+                {
+                    // Try different search combinations with the document reference
+                    var searchVariations = new[]
+                    {
+                        $"{request.Query} {docRef}",  // Query + document name
+                        $"{docRef} {request.Query}",  // Document name + query
+                        request.Query // Just the query, but we'll filter by document later
+                    };
+                    
+                    foreach (var searchVariation in searchVariations)
+                    {
+                        _logger.LogDebug("Searching with document-specific query: '{Query}'", searchVariation);
+                        
+                        var docEmbedding = await _embeddingService.GenerateEmbeddingAsync(searchVariation);
+                        var docResults = await _searchService.HybridSearchAsync(
+                            searchVariation, docEmbedding, request.MaxResults * 4, request.DocumentId);
+                        
+                        var docResultsList = docResults.GetResults().ToList();
+                        _logger.LogDebug("Document-specific search for '{DocRef}' with query '{Query}' found {Count} results", 
+                            docRef, searchVariation, docResultsList.Count);
+                        
+                        foreach (var result in docResultsList)
+                        {
+                            double vectorScore = result.Score ?? 0.0;
+                            double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
+                                result.Document.Content, 
+                                request.Query, 
+                                vectorScore);
+
+                            // Strong boost for documents that match our document references
+                            if (DocumentIsReferencedInHistory(result.Document.DocumentId, result.Document.Metadata, documentReferences))
+                            {
+                                combinedScore *= 1.8; // 80% boost for history-referenced documents
+                                _logger.LogDebug("Applied strong history boost to document: {DocumentId} (score: {Score:F3})", 
+                                    result.Document.DocumentId, combinedScore);
+                            }
+
+                            var searchResult = new SearchResult
+                            {
+                                Id = result.Document.Id,
+                                Content = result.Document.Content,
+                                DocumentId = result.Document.DocumentId,
+                                ChunkIndex = result.Document.ChunkIndex,
+                                Score = combinedScore,
+                                VectorScore = vectorScore,
+                                Metadata = result.Document.Metadata,
+                                CreatedAt = result.Document.CreatedAt,
+                                // Set metadata directly from document (no bulk loading in this path)
+                                BlobPath = result.Document.BlobPath,
+                                BlobContainer = result.Document.BlobContainer,
+                                OriginalFileName = result.Document.OriginalFileName,
+                                ContentType = result.Document.ContentType,
+                                TextContentBlobPath = result.Document.TextContentBlobPath,
+                                FileSizeBytes = result.Document.FileSizeBytes
+                            };
+
+                            // Ensure OriginalFileName is never null for document-specific search results
+                            if (string.IsNullOrEmpty(searchResult.OriginalFileName))
+                            {
+                                // Try to extract from Metadata field as last resort
+                                if (!string.IsNullOrEmpty(result.Document.Metadata) && result.Document.Metadata.StartsWith("File: "))
+                                {
+                                    searchResult.OriginalFileName = result.Document.Metadata.Substring(6); // Remove "File: " prefix
+                                    _logger.LogDebug("Extracted OriginalFileName from Metadata for DocumentId {DocumentId}: {FileName}", 
+                                        result.Document.DocumentId, searchResult.OriginalFileName);
+                                }
+                                else
+                                {
+                                    searchResult.OriginalFileName = $"Document-{result.Document.DocumentId}";
+                                    _logger.LogWarning("No OriginalFileName found for DocumentId {DocumentId}, using fallback: {FileName}", 
+                                        result.Document.DocumentId, searchResult.OriginalFileName);
+                                }
+                            }
+
+                            enhancedResults.Add(searchResult);
+                        }
+                        
+                        // If we found good results, don't try more variations
+                        if (enhancedResults.Any(r => r.Score > 0.2))
+                        {
+                            break;
+                        }
+                    }
+                }
+                
+                if (enhancedResults.Any())
+                {
+                    // Remove duplicates and sort by score
+                    var uniqueResults = enhancedResults
+                        .GroupBy(r => r.Id)
+                        .Select(g => g.OrderByDescending(r => r.Score).First())
+                        .OrderByDescending(r => r.Score)
+                        .Take(request.MaxResults)
+                        .ToList();
+                    
+                    _logger.LogInformation("Related topic search found {Count} enhanced results from document-specific searches", 
+                        uniqueResults.Count);
+                    return uniqueResults;
+                }
+            }
+            
+            // Strategy 2: Traditional enhanced search
             List<string> allSearchTerms;
             if (isFollowUpQuestion)
             {
                 var followUpTerms = ExtractFollowUpTerms(request.Query);
-                // For follow-ups: prioritize current query + relevant document references, limit history keywords
                 allSearchTerms = followUpTerms
-                    .Concat(documentReferences.Take(2)) // Limit document references
-                    .Concat(historyKeywords.Take(3))    // Significantly limit history keywords
+                    .Concat(documentReferences.Take(2))
+                    .Concat(historyKeywords.Take(3))
                     .Distinct()
                     .ToList();
             }
@@ -442,7 +586,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     CreatedAt = result.Document.CreatedAt
                 };
 
-                // Add metadata if available
+                // Add metadata if available, with fallback to document metadata
                 if (metadataBulk.TryGetValue(result.Document.DocumentId, out var metadata))
                 {
                     searchResult.BlobPath = metadata.BlobPath;
@@ -451,6 +595,34 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     searchResult.ContentType = metadata.ContentType;
                     searchResult.TextContentBlobPath = metadata.TextContentBlobPath;
                     searchResult.FileSizeBytes = metadata.FileSizeBytes;
+                }
+                else
+                {
+                    // Fallback to document metadata if bulk metadata is not available
+                    searchResult.BlobPath = result.Document.BlobPath;
+                    searchResult.BlobContainer = result.Document.BlobContainer;
+                    searchResult.OriginalFileName = result.Document.OriginalFileName;
+                    searchResult.ContentType = result.Document.ContentType;
+                    searchResult.TextContentBlobPath = result.Document.TextContentBlobPath;
+                    searchResult.FileSizeBytes = result.Document.FileSizeBytes;
+                }
+
+                // Ensure OriginalFileName is never null for enhanced search results
+                if (string.IsNullOrEmpty(searchResult.OriginalFileName))
+                {
+                    // Try to extract from Metadata field as last resort
+                    if (!string.IsNullOrEmpty(result.Document.Metadata) && result.Document.Metadata.StartsWith("File: "))
+                    {
+                        searchResult.OriginalFileName = result.Document.Metadata.Substring(6); // Remove "File: " prefix
+                        _logger.LogDebug("Extracted OriginalFileName from Metadata for DocumentId {DocumentId}: {FileName}", 
+                            result.Document.DocumentId, searchResult.OriginalFileName);
+                    }
+                    else
+                    {
+                        searchResult.OriginalFileName = $"Document-{result.Document.DocumentId}";
+                        _logger.LogWarning("No OriginalFileName found for DocumentId {DocumentId}, using fallback: {FileName}", 
+                            result.Document.DocumentId, searchResult.OriginalFileName);
+                    }
                 }
 
                 results.Add(searchResult);
@@ -527,7 +699,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     }
 
     /// <summary>
-    /// Extracts document IDs and filenames from chat history sources - limited for follow-up questions
+    /// Extracts document IDs and filenames from chat history sources with improved detection
     /// </summary>
     private List<string> ExtractDocumentReferencesFromChatHistory(List<ChatMessage>? chatHistory)
     {
@@ -535,16 +707,21 @@ public class SearchOrchestrationService : ISearchOrchestrationService
 
         var documentReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         
-        // Get recent assistant messages (last 2 instead of 3) that might contain source references
+        // Get recent assistant messages that might contain source references
         var recentAssistantMessages = chatHistory
             .Where(m => m.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase))
-            .TakeLast(2); // Reduced from 3 to 2
+            .TakeLast(3);
+        
+        _logger.LogDebug("Extracting document references from {MessageCount} assistant messages", recentAssistantMessages.Count());
         
         foreach (var message in recentAssistantMessages)
         {
             if (string.IsNullOrWhiteSpace(message.Content)) continue;
 
-            // Look for source references in German format: "Quelle 1:", "Laut Quelle", etc.
+            _logger.LogDebug("Processing assistant message content: {ContentPreview}", 
+                message.Content.Length > 200 ? message.Content.Substring(0, 200) + "..." : message.Content);
+
+            // Strategy 1: Look for source references in German format
             var lines = message.Content.Split('\n');
             bool inSourcesSection = false;
             
@@ -554,57 +731,140 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 
                 // Check if we're in the sources section
                 if (trimmedLine.StartsWith("**Quellen:**", StringComparison.OrdinalIgnoreCase) ||
-                    trimmedLine.StartsWith("Quellen:", StringComparison.OrdinalIgnoreCase))
+                    trimmedLine.StartsWith("Quellen:", StringComparison.OrdinalIgnoreCase) ||
+                    trimmedLine.StartsWith("**Quelle", StringComparison.OrdinalIgnoreCase))
                 {
                     inSourcesSection = true;
+                    _logger.LogDebug("Found sources section: {Line}", trimmedLine);
                     continue;
                 }
                 
-                // If we're in sources section, extract document names
-                if (inSourcesSection && trimmedLine.StartsWith("- **Quelle", StringComparison.OrdinalIgnoreCase))
+                // Stop if we reach another section
+                if (inSourcesSection && trimmedLine.StartsWith("**") && !trimmedLine.Contains("Quelle"))
                 {
-                    // Extract filename from source line
-                    // Format: "- **Quelle 1:** [DocumentName.pdf] - [Topic]"
-                    var parts = trimmedLine.Split(new[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
-                    {
-                        var filename = parts[1].Trim();
-                        if (!string.IsNullOrEmpty(filename))
-                        {
-                            documentReferences.Add(filename);
-                            
-                            // Also add filename without extension for broader matching
-                            var nameWithoutExt = Path.GetFileNameWithoutExtension(filename);
-                            if (!string.IsNullOrEmpty(nameWithoutExt))
-                            {
-                                documentReferences.Add(nameWithoutExt);
-                            }
-                        }
-                    }
+                    inSourcesSection = false;
                 }
                 
-                // Also look for inline source references like "Laut Quelle 1"
-                if (trimmedLine.Contains("Quelle ", StringComparison.OrdinalIgnoreCase))
+                // Extract from sources section
+                if (inSourcesSection && !string.IsNullOrEmpty(trimmedLine))
                 {
-                    // Extract any capitalized words that might be document names
-                    var words = trimmedLine.Split(' ');
-                    foreach (var word in words)
-                    {
-                        if (word.Length > 4 && char.IsUpper(word[0]) && 
-                            !word.StartsWith("Quelle", StringComparison.OrdinalIgnoreCase) &&
-                            !word.StartsWith("Laut", StringComparison.OrdinalIgnoreCase))
-                        {
-                            documentReferences.Add(word.Trim(':', '.', ',', ';'));
-                        }
-                    }
+                    // Format: "- **Quelle 1:** [DocumentName.pdf] - [Topic]"
+                    // Or: "DocumentName.pdf: Topic description"
+                    ExtractDocumentNameFromSourceLine(trimmedLine, documentReferences);
                 }
+                
+                // Strategy 2: Look for standalone .pdf/.docx/.md mentions
+                ExtractDocumentNamesFromText(trimmedLine, documentReferences);
+            }
+            
+            // Strategy 3: Look for patterns like "Laut [Document]", "In [Document]"
+            ExtractInlineDocumentReferences(message.Content, documentReferences);
+        }
+
+        var results = documentReferences.Take(5).ToList();
+        _logger.LogInformation("Extracted {Count} document references from chat history: {References}", 
+            results.Count, string.Join(", ", results));
+        
+        if (results.Count == 0)
+        {
+            _logger.LogWarning("No document references extracted from chat history. Recent assistant messages content:");
+            foreach (var message in recentAssistantMessages)
+            {
+                var contentLength = message.Content?.Length ?? 0;
+                var maxLength = Math.Min(300, contentLength);
+                _logger.LogWarning("Assistant message: {Content}", message.Content?.Substring(0, maxLength));
             }
         }
 
-        _logger.LogDebug("Extracted {Count} document references from chat history: {References}", 
-            documentReferences.Count, string.Join(", ", documentReferences.Take(3))); // Reduced logging from 5 to 3
+        return results;
+    }
 
-        return documentReferences.Take(5).ToList(); // Limit to top 5 document references
+    /// <summary>
+    /// Extracts document names from a source line
+    /// </summary>
+    private void ExtractDocumentNameFromSourceLine(string line, HashSet<string> documentReferences)
+    {
+        // Pattern 1: [DocumentName.pdf]
+        var bracketMatches = System.Text.RegularExpressions.Regex.Matches(line, @"\[([^\]]+\.(?:pdf|docx|md))\]", 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        foreach (System.Text.RegularExpressions.Match match in bracketMatches)
+        {
+            var filename = match.Groups[1].Value.Trim();
+            documentReferences.Add(filename);
+            documentReferences.Add(Path.GetFileNameWithoutExtension(filename));
+            _logger.LogDebug("Found bracketed document: {Document}", filename);
+        }
+        
+        // Pattern 2: *DocumentName.md* (markdown formatting)
+        var asteriskMatches = System.Text.RegularExpressions.Regex.Matches(line, @"\*([^\*]+\.(?:pdf|docx|md))\*", 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        foreach (System.Text.RegularExpressions.Match match in asteriskMatches)
+        {
+            var filename = match.Groups[1].Value.Trim();
+            documentReferences.Add(filename);
+            documentReferences.Add(Path.GetFileNameWithoutExtension(filename));
+            _logger.LogDebug("Found asterisk document: {Document}", filename);
+        }
+        
+        // Pattern 3: DocumentName.pdf: description
+        var colonMatches = System.Text.RegularExpressions.Regex.Matches(line, @"([^:\[\]\*]+\.(?:pdf|docx|md)):", 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        foreach (System.Text.RegularExpressions.Match match in colonMatches)
+        {
+            var filename = match.Groups[1].Value.Trim();
+            documentReferences.Add(filename);
+            documentReferences.Add(Path.GetFileNameWithoutExtension(filename));
+            _logger.LogDebug("Found colon-separated document: {Document}", filename);
+        }
+    }
+
+    /// <summary>
+    /// Extracts document names from regular text
+    /// </summary>
+    private void ExtractDocumentNamesFromText(string text, HashSet<string> documentReferences)
+    {
+        var matches = System.Text.RegularExpressions.Regex.Matches(text, @"\b([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß0-9_\-\s]+\.(?:pdf|docx|md))\b", 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            var filename = match.Groups[1].Value.Trim();
+            if (filename.Length > 5 && filename.Length < 100) // Reasonable filename length
+            {
+                documentReferences.Add(filename);
+                documentReferences.Add(Path.GetFileNameWithoutExtension(filename));
+                _logger.LogDebug("Found document in text: {Document}", filename);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts inline document references like "Laut Azure Resource Abbreviations"
+    /// </summary>
+    private void ExtractInlineDocumentReferences(string content, HashSet<string> documentReferences)
+    {
+        // Look for patterns like "Laut [Document]", "In [Document]", "Gemäß [Document]"
+        var patterns = new[]
+        {
+            @"(?:Laut|In|Gemäß|Nach|Basierend auf)\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß0-9_\-\s]{5,50})",
+            @"(?:dem|der|das)\s+(?:Dokument|Quelle)\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß0-9_\-\s]{5,50})"
+        };
+        
+        foreach (var pattern in patterns)
+        {
+            var matches = System.Text.RegularExpressions.Regex.Matches(content, pattern, 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            
+            foreach (System.Text.RegularExpressions.Match match in matches)
+            {
+                var reference = match.Groups[1].Value.Trim();
+                if (!string.IsNullOrEmpty(reference))
+                {
+                    documentReferences.Add(reference);
+                    _logger.LogDebug("Found inline document reference: {Reference}", reference);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -753,28 +1013,192 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     {
         if (string.IsNullOrWhiteSpace(query)) return false;
 
-        var queryLower = query.ToLowerInvariant();
+        var queryLower = query.ToLowerInvariant().Trim();
         
-        // German follow-up patterns
+        // Only very short queries are likely follow-ups (reduced threshold)
+        if (queryLower.Length < 10 || queryLower.Split(' ').Length <= 2)
+        {
+            return true;
+        }
+
+        // German follow-up patterns - more specific patterns that indicate continuation
         var followUpPatterns = new[]
         {
-            "gehe mehr", "mehr auf", "weitere", "zusätzliche", "andere aspekte", "andere seiten", 
-            "nachteile", "vorteile", "probleme", "schwierigkeiten", "details", "einzelheiten",
-            "kannst du", "könntest du", "würdest du", "bitte", "erklär", "beschreib", "erläuter",
-            "was sind", "welche sind", "wie sieht", "wie ist"
+            "mehr über", "mehr dazu", "mehr infos", "mehr details", "weitere informationen",
+            "nachteile davon", "vorteile davon", "probleme dabei", "schwierigkeiten", 
+            "andere aspekte", "zusätzlich", "außerdem", "darüber hinaus",
+            "kannst du", "könntest du", "erklär mir", "sag mir mehr"
         };
 
-        // English follow-up patterns
-        var englishPatterns = new[]
-        {
-            "tell me more", "more about", "additional", "further", "other aspects", "downsides", 
-            "advantages", "disadvantages", "problems", "issues", "details", "could you", "would you",
-            "please", "explain", "describe", "elaborate", "what are", "which are", "how is"
-        };
-
-        var allPatterns = followUpPatterns.Concat(englishPatterns);
+        // Question words at the beginning (check for legitimate standalone questions)
+        var questionWords = new[] { "welche", "welcher", "welches", "was", "wie", "warum", "weshalb", "wo", "wann", "wer" };
+        bool startsWithQuestionWord = questionWords.Any(qw => queryLower.StartsWith(qw + " "));
         
-        return allPatterns.Any(pattern => queryLower.Contains(pattern));
+        // If it starts with a question word and is reasonably long, it's likely a new question, not a follow-up
+        if (startsWithQuestionWord && queryLower.Length > 20)
+        {
+            return false;
+        }
+        
+        // Check for follow-up patterns
+        var hasFollowUpPattern = followUpPatterns.Any(pattern => queryLower.Contains(pattern));
+        
+        return hasFollowUpPattern;
+    }
+
+    /// <summary>
+    /// Determines if the current query is about a related topic to recent conversation using semantic similarity
+    /// </summary>
+    private async Task<bool> IsRelatedTopicQuestionAsync(string query, List<ChatMessage>? chatHistory)
+    {
+        if (string.IsNullOrWhiteSpace(query) || chatHistory?.Any() != true) return false;
+
+        _logger.LogInformation("Checking semantic similarity for query: '{Query}'", query);
+        
+        // Get recent user questions (not assistant responses)
+        var recentUserQuestions = chatHistory
+            .Where(m => m.Role.ToLower() == "user" && !string.IsNullOrWhiteSpace(m.Content))
+            .TakeLast(3)
+            .Select(m => m.Content)
+            .ToList();
+        
+        if (!recentUserQuestions.Any())
+        {
+            _logger.LogDebug("No recent user questions found in chat history");
+            return false;
+        }
+
+        try
+        {
+            // Generate embedding for current query
+            var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(query);
+            
+            // Check semantic similarity with recent questions
+            foreach (var previousQuestion in recentUserQuestions)
+            {
+                var previousEmbedding = await _embeddingService.GenerateEmbeddingAsync(previousQuestion);
+                
+                // Calculate cosine similarity
+                var similarity = CalculateCosineSimilarity(queryEmbedding, previousEmbedding);
+                
+                _logger.LogDebug("Semantic similarity between '{CurrentQuery}' and '{PreviousQuery}': {Similarity:F3}", 
+                    query, previousQuestion, similarity);
+                
+                // If similarity is above threshold, consider it a related topic
+                if (similarity >= 0.75) // 75% similarity threshold
+                {
+                    _logger.LogInformation("Detected related topic question with high semantic similarity ({Similarity:F3}): '{Query}' relates to '{Previous}'", 
+                        similarity, query, previousQuestion);
+                    return true;
+                }
+                
+                // Lower threshold for questions with similar structure
+                if (similarity >= 0.65 && HasSimilarQuestionStructure(query, previousQuestion))
+                {
+                    _logger.LogInformation("Detected related topic question with moderate similarity + similar structure ({Similarity:F3}): '{Query}' relates to '{Previous}'", 
+                        similarity, query, previousQuestion);
+                    return true;
+                }
+            }
+            
+            _logger.LogDebug("No semantically related topics detected for query: '{Query}'", query);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking semantic similarity for related topics, falling back to simple detection");
+            
+            // Fallback to simple keyword-based detection
+            return HasSimilarKeywords(query, recentUserQuestions);
+        }
+    }
+
+    /// <summary>
+    /// Calculates cosine similarity between two embedding vectors
+    /// </summary>
+    private static double CalculateCosineSimilarity(IReadOnlyList<float> vector1, IReadOnlyList<float> vector2)
+    {
+        if (vector1.Count != vector2.Count) return 0.0;
+
+        double dotProduct = 0.0;
+        double magnitude1 = 0.0;
+        double magnitude2 = 0.0;
+
+        for (int i = 0; i < vector1.Count; i++)
+        {
+            dotProduct += vector1[i] * vector2[i];
+            magnitude1 += vector1[i] * vector1[i];
+            magnitude2 += vector2[i] * vector2[i];
+        }
+
+        if (magnitude1 == 0.0 || magnitude2 == 0.0) return 0.0;
+
+        return dotProduct / (Math.Sqrt(magnitude1) * Math.Sqrt(magnitude2));
+    }
+
+    /// <summary>
+    /// Checks if two questions have similar structure patterns
+    /// </summary>
+    private static bool HasSimilarQuestionStructure(string query1, string query2)
+    {
+        var q1Lower = query1.ToLowerInvariant();
+        var q2Lower = query2.ToLowerInvariant();
+        
+        // Check for similar question words
+        var questionWords = new[] { "welche", "was", "wie", "wo", "wann", "warum", "wer" };
+        var q1QuestionWords = questionWords.Where(w => q1Lower.Contains(w)).ToList();
+        var q2QuestionWords = questionWords.Where(w => q2Lower.Contains(w)).ToList();
+        
+        if (q1QuestionWords.Any() && q2QuestionWords.Any() && q1QuestionWords.Intersect(q2QuestionWords).Any())
+        {
+            return true;
+        }
+        
+        // Check for similar action words
+        var actionWords = new[] { "empfiehlt", "vorgeschlagen", "definiert", "beschreibt", "erklärt", "zeigt" };
+        var q1ActionWords = actionWords.Where(w => q1Lower.Contains(w)).ToList();
+        var q2ActionWords = actionWords.Where(w => q2Lower.Contains(w)).ToList();
+        
+        return q1ActionWords.Any() && q2ActionWords.Any() && q1ActionWords.Intersect(q2ActionWords).Any();
+    }
+
+    /// <summary>
+    /// Fallback method for keyword-based similarity detection
+    /// </summary>
+    private bool HasSimilarKeywords(string query, List<string> previousQuestions)
+    {
+        var queryWords = ExtractMeaningfulWords(query);
+        
+        foreach (var previousQuestion in previousQuestions)
+        {
+            var previousWords = ExtractMeaningfulWords(previousQuestion);
+            var commonWords = queryWords.Intersect(previousWords, StringComparer.OrdinalIgnoreCase).Count();
+            var totalUniqueWords = queryWords.Union(previousWords, StringComparer.OrdinalIgnoreCase).Count();
+            
+            if (totalUniqueWords > 0)
+            {
+                var similarity = (double)commonWords / totalUniqueWords;
+                if (similarity >= 0.3) // 30% word overlap
+                {
+                    _logger.LogInformation("Detected related topic via keyword similarity ({Similarity:F3}): '{Query}' relates to '{Previous}'", 
+                        similarity, query, previousQuestion);
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts meaningful words from a text, filtering out stop words
+    /// </summary>
+    private List<string> ExtractMeaningfulWords(string text)
+    {
+        return text.ToLowerInvariant()
+            .Split(new[] { ' ', '\n', '\t', '.', ',', ';', ':', '!', '?' }, StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 3 && !IsStopWord(w))
+            .ToList();
     }
 
     /// <summary>
@@ -869,6 +1293,48 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             _logger.LogError(ex, "Error bulk loading metadata for {DocumentCount} documents", documentIds.Count);
             return new Dictionary<string, DocumentMetadata>();
         }
+    }
+
+    /// <summary>
+    /// Combines and prioritizes results from normal search and history-based search
+    /// </summary>
+    private List<SearchResult> CombineAndPrioritizeResults(List<SearchResult> normalResults, List<SearchResult> historyResults, int maxResults)
+    {
+        var combinedResults = new List<SearchResult>();
+        var seenDocuments = new HashSet<string>();
+
+        // First, add history-based results (they get priority for follow-up questions)
+        foreach (var result in historyResults.OrderByDescending(r => r.Score))
+        {
+            if (!seenDocuments.Contains(result.DocumentId))
+            {
+                // Boost history-based results slightly for follow-up questions
+                var originalScore = result.Score ?? 0;
+                result.Score = originalScore * 1.1;
+                
+                _logger.LogInformation("History result boosted: DocumentId={DocumentId}, OriginalScore={OriginalScore:F3}, BoostedScore={BoostedScore:F3}, OriginalFileName={OriginalFileName}", 
+                    result.DocumentId, originalScore, result.Score, result.OriginalFileName ?? "[NULL]");
+                
+                combinedResults.Add(result);
+                seenDocuments.Add(result.DocumentId);
+            }
+        }
+
+        // Then add normal results that aren't already included
+        foreach (var result in normalResults.OrderByDescending(r => r.Score))
+        {
+            if (!seenDocuments.Contains(result.DocumentId) && combinedResults.Count < maxResults)
+            {
+                combinedResults.Add(result);
+                seenDocuments.Add(result.DocumentId);
+            }
+        }
+
+        // Return top results sorted by score
+        return combinedResults
+            .OrderByDescending(r => r.Score)
+            .Take(maxResults)
+            .ToList();
     }
 
     /// <summary>
