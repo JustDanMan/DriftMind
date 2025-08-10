@@ -15,20 +15,20 @@ public interface IChatService
 public class ChatService : IChatService
 {
     private readonly ChatClient _chatClient;
-    private readonly IBlobStorageService _blobStorageService;
+    private readonly ISearchService _searchService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ChatService> _logger;
     private readonly string _chatModel;
 
     public ChatService(
         AzureOpenAIClient azureOpenAIClient, 
-        IBlobStorageService blobStorageService,
+        ISearchService searchService,
         IConfiguration configuration, 
         ILogger<ChatService> logger)
     {
         _chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-5-chat";
         _chatClient = azureOpenAIClient.GetChatClient(_chatModel);
-        _blobStorageService = blobStorageService;
+        _searchService = searchService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -265,136 +265,114 @@ Remember: You are helping users access and explore their document knowledge thro
 
     private async Task<string> BuildContextFromResultsAsync(List<SearchResult> searchResults)
     {
-        // Build context from relevant results only
         var contextBuilder = new StringBuilder();
         contextBuilder.AppendLine("Based on the following relevant information:");
         contextBuilder.AppendLine();
 
-        // Group results by document to avoid loading same file multiple times
-        var documentGroups = searchResults
-            .Where(r => !string.IsNullOrEmpty(r.BlobPath))
-            .GroupBy(r => r.BlobPath)
+        var adjacentChunksToInclude = _configuration.GetValue<int>("ChatService:AdjacentChunksToInclude", 2);
+        _logger.LogInformation("Building context with {AdjacentCount} adjacent chunks for each relevant result", adjacentChunksToInclude);
+
+        // Group results by document to process them efficiently
+        var resultsByDocument = searchResults
+            .GroupBy(r => r.DocumentId)
             .ToList();
 
-        // Load original file contents for enhanced context (prioritize text content for PDF/Word)
-        var originalFileContents = new Dictionary<string, string>();
-        foreach (var group in documentGroups)
+        var processedChunks = new HashSet<string>(); // Track processed chunks to avoid duplicates
+        int sourceCounter = 1;
+
+        foreach (var documentGroup in resultsByDocument)
         {
-            try
+            var documentId = documentGroup.Key;
+            var documentsResults = documentGroup.ToList();
+
+            _logger.LogDebug("Processing document {DocumentId} with {ResultCount} relevant chunks", 
+                documentId, documentsResults.Count);
+
+            // Get all unique chunk indices for this document
+            var chunkIndices = documentsResults.Select(r => r.ChunkIndex).Distinct().OrderBy(x => x).ToList();
+
+            // For each chunk index, get adjacent chunks
+            foreach (var chunkIndex in chunkIndices)
             {
-                var blobPath = group.Key;
-                var result = group.First(); // Get first result to check content type
-                
-                // Try to load text content first (for PDF/Word files)
-                if (!string.IsNullOrEmpty(result.TextContentBlobPath))
+                try
                 {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                    var textContent = await _blobStorageService.GetTextContentAsync(result.TextContentBlobPath);
+                    // Get adjacent chunks (including the target chunk)
+                    var adjacentChunks = await _searchService.GetAdjacentChunksAsync(documentId, chunkIndex, adjacentChunksToInclude);
                     
-                    if (!string.IsNullOrEmpty(textContent))
+                    if (!adjacentChunks.Any())
                     {
-                        originalFileContents[blobPath!] = textContent;
-                        _logger.LogInformation("Loaded extracted text content from blob: {TextBlobPath} for file: {OriginalFileName}", 
-                            result.TextContentBlobPath, result.OriginalFileName);
-                        continue; // Skip loading original file if we have text content
+                        _logger.LogWarning("No adjacent chunks found for DocumentId: {DocumentId}, ChunkIndex: {ChunkIndex}", 
+                            documentId, chunkIndex);
+                        continue;
+                    }
+
+                    // Get the original search result for this chunk to preserve score and metadata
+                    var originalResult = documentsResults.FirstOrDefault(r => r.ChunkIndex == chunkIndex);
+                    if (originalResult == null) continue;
+
+                    // Build context section for this expanded chunk group
+                    contextBuilder.AppendLine($"=== SOURCE {sourceCounter} ===");
+                    contextBuilder.AppendLine($"📄 DOCUMENT: {originalResult.OriginalFileName ?? documentId}");
+                    contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
+                    contextBuilder.AppendLine($"📍 TARGET CHUNK: {chunkIndex} (with {adjacentChunks.Count - 1} adjacent chunks)");
+                    contextBuilder.AppendLine();
+
+                    // Add all adjacent chunks in order
+                    foreach (var chunk in adjacentChunks.OrderBy(c => c.ChunkIndex))
+                    {
+                        // Skip if we've already processed this chunk
+                        if (processedChunks.Contains(chunk.Id))
+                            continue;
+
+                        if (chunk.ChunkIndex == chunkIndex)
+                        {
+                            contextBuilder.AppendLine($"🎯 **RELEVANT CHUNK {chunk.ChunkIndex}** (Target):");
+                        }
+                        else
+                        {
+                            contextBuilder.AppendLine($"📄 Context Chunk {chunk.ChunkIndex}:");
+                        }
+                        
+                        contextBuilder.AppendLine(chunk.Content);
+                        contextBuilder.AppendLine();
+
+                        processedChunks.Add(chunk.Id);
+                    }
+
+                    contextBuilder.AppendLine("=== END SOURCE ===");
+                    contextBuilder.AppendLine();
+                    sourceCounter++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error loading adjacent chunks for DocumentId: {DocumentId}, ChunkIndex: {ChunkIndex}", 
+                        documentId, chunkIndex);
+                    
+                    // Fallback: Use only the original chunk
+                    var originalResult = documentsResults.FirstOrDefault(r => r.ChunkIndex == chunkIndex);
+                    if (originalResult != null)
+                    {
+                        contextBuilder.AppendLine($"=== SOURCE {sourceCounter} (FALLBACK) ===");
+                        contextBuilder.AppendLine($"📄 DOCUMENT: {originalResult.OriginalFileName ?? documentId}");
+                        contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
+                        contextBuilder.AppendLine($"📍 CHUNK: {chunkIndex}");
+                        contextBuilder.AppendLine();
+                        contextBuilder.AppendLine("CONTENT:");
+                        contextBuilder.AppendLine(originalResult.Content);
+                        contextBuilder.AppendLine();
+                        contextBuilder.AppendLine("=== END SOURCE ===");
+                        contextBuilder.AppendLine();
+                        sourceCounter++;
                     }
                 }
-                
-                // Fallback to original file for direct text files
-                if (!string.IsNullOrEmpty(blobPath) && IsTextFile(result.ContentType, result.OriginalFileName))
-                {
-                    // Use a timeout to prevent hanging
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                    var fileContent = await _blobStorageService.GetFileContentAsync(blobPath!);
-                    
-                    if (!string.IsNullOrEmpty(fileContent))
-                    {
-                        originalFileContents[blobPath!] = fileContent;
-                        _logger.LogInformation("Loaded original file content from blob: {BlobPath}", blobPath);
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("Skipping non-text file without extracted content: {BlobPath} (ContentType: {ContentType})", 
-                        blobPath, result.ContentType);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to load original file from blob: {BlobPath}", group.Key);
             }
         }
 
-        for (int i = 0; i < searchResults.Count; i++)
-        {
-            var result = searchResults[i];
-            
-            // Detect if this is a history-enhanced result (score > 1.0 indicates boost was applied)
-            bool isHistoryEnhanced = result.Score > 1.0;
-            
-            _logger.LogDebug("Result {Index}: Score={Score}, DocumentId={DocId}, IsHistoryEnhanced={IsEnhanced}", 
-                i+1, result.Score, result.DocumentId.Substring(0, Math.Min(8, result.DocumentId.Length)), isHistoryEnhanced);
-            
-            contextBuilder.AppendLine($"=== SOURCE {i + 1} ===");
-            
-            if (isHistoryEnhanced)
-            {
-                contextBuilder.AppendLine("🔄 HISTORY-ENHANCED SOURCE (aus vorherigem Chatverlauf identifiziert)");
-            }
-            else
-            {
-                contextBuilder.AppendLine("🔍 CURRENT SEARCH RESULT");
-            }
-            
-            contextBuilder.AppendLine($"Score: {result.Score:F2}");
-            contextBuilder.AppendLine($"Document ID: {result.DocumentId}");
-            
-            // Include original file context if available
-            if (!string.IsNullOrEmpty(result.BlobPath) && originalFileContents.ContainsKey(result.BlobPath))
-            {
-                var originalContent = originalFileContents[result.BlobPath];
-                contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {result.OriginalFileName}");
-                contextBuilder.AppendLine("Full Document Content:");
-                contextBuilder.AppendLine(originalContent);
-                contextBuilder.AppendLine();
-                contextBuilder.AppendLine("Relevant Chunk:");
-            }
-            else if (!string.IsNullOrEmpty(result.OriginalFileName))
-            {
-                contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {result.OriginalFileName}");
-            }
-            
-            contextBuilder.AppendLine("CONTENT:");
-            contextBuilder.AppendLine(result.Content);
-            contextBuilder.AppendLine();
-            contextBuilder.AppendLine("=== END SOURCE ===");
-            contextBuilder.AppendLine();
-        }
-
-        return contextBuilder.ToString();
-    }
-
-    private bool IsTextFile(string? contentType, string? fileName)
-    {
-        // Check content type first
-        if (!string.IsNullOrEmpty(contentType))
-        {
-            var textTypes = new[] { "text/", "application/json", "application/xml" };
-            if (textTypes.Any(type => contentType.StartsWith(type, StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-        }
-
-        // Check file extension as fallback
-        if (!string.IsNullOrEmpty(fileName))
-        {
-            var textExtensions = new[] { ".txt", ".md", ".json", ".xml", ".csv", ".log" };
-            var extension = Path.GetExtension(fileName).ToLowerInvariant();
-            return textExtensions.Contains(extension);
-        }
-
-        return false;
+        var finalContext = contextBuilder.ToString();
+        _logger.LogInformation("Built context with {SourceCount} sources and {AdjacentCount} adjacent chunks per relevant result", 
+            sourceCounter - 1, adjacentChunksToInclude);
+        
+        return finalContext;
     }
 
     private string BuildEnhancedSystemPrompt()

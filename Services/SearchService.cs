@@ -16,6 +16,7 @@ public interface ISearchService
     Task<SearchResults<DocumentChunk>> HybridSearchAsync(string query, IReadOnlyList<float> queryEmbedding, int top = 10, string? documentId = null);
     Task<List<string>> GetAllDocumentIdsAsync();
     Task<List<DocumentChunk>> GetDocumentChunksAsync(string documentId);
+    Task<List<DocumentChunk>> GetAdjacentChunksAsync(string documentId, int chunkIndex, int adjacentCount);
     Task<Dictionary<string, List<DocumentChunk>>> GetAllDocumentsAsync(int maxResults = 50, int skip = 0);
     Task<bool> DeleteDocumentAsync(string documentId);
     Task<List<DocumentChunk>> GetChunk0sForDocumentsAsync(List<string> documentIds);
@@ -361,6 +362,43 @@ public class SearchService : ISearchService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving chunks for document: {DocumentId}", documentId);
+            throw;
+        }
+    }
+
+    public async Task<List<DocumentChunk>> GetAdjacentChunksAsync(string documentId, int chunkIndex, int adjacentCount)
+    {
+        try
+        {
+            _logger.LogDebug("Retrieving adjacent chunks for document: {DocumentId}, chunk: {ChunkIndex}, adjacentCount: {AdjacentCount}", 
+                documentId, chunkIndex, adjacentCount);
+
+            var minChunkIndex = Math.Max(0, chunkIndex - adjacentCount);
+            var maxChunkIndex = chunkIndex + adjacentCount;
+
+            var searchOptions = new SearchOptions
+            {
+                Filter = $"DocumentId eq '{documentId}' and ChunkIndex ge {minChunkIndex} and ChunkIndex le {maxChunkIndex}",
+                OrderBy = { "ChunkIndex asc" },
+                Size = (adjacentCount * 2) + 1 // Target chunk + before + after
+            };
+
+            var searchResults = await _searchClient.SearchAsync<DocumentChunk>("*", searchOptions);
+            var chunks = new List<DocumentChunk>();
+
+            await foreach (var result in searchResults.Value.GetResultsAsync())
+            {
+                chunks.Add(result.Document);
+            }
+
+            _logger.LogDebug("Retrieved {Count} adjacent chunks for document {DocumentId}, chunk {ChunkIndex}", 
+                chunks.Count, documentId, chunkIndex);
+            return chunks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving adjacent chunks for document: {DocumentId}, chunk: {ChunkIndex}", 
+                documentId, chunkIndex);
             throw;
         }
     }
