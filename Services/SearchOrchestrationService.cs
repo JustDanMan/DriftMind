@@ -835,18 +835,16 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             List<string> allSearchTerms;
             if (isFollowUpQuestion)
             {
-                var followUpTerms = ExtractFollowUpTerms(request.Query);
-                allSearchTerms = followUpTerms
+                // For follow-up questions: focus on history keywords and document references
+                allSearchTerms = historyKeywords.Take(3)
                     .Concat(documentReferences.Take(2))
-                    .Concat(historyKeywords.Take(3))
                     .Distinct()
                     .ToList();
             }
             else
             {
                 // For new questions: use full context
-                var followUpTerms = ExtractFollowUpTerms(request.Query);
-                allSearchTerms = historyKeywords.Concat(followUpTerms).Concat(documentReferences).Distinct().ToList();
+                allSearchTerms = historyKeywords.Concat(documentReferences).Distinct().ToList();
             }
             
             var enhancedQuery = CombineQueryWithHistoryContext(searchQuery, allSearchTerms);
@@ -867,20 +865,13 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             
             if (!resultsList.Any())
             {
-                // Try with original query terms from history
-                var originalTerms = ExtractOriginalQueryTermsFromHistory(request.ChatHistory);
-                if (originalTerms.Any())
-                {
-                    var historyBasedQuery = string.Join(" ", originalTerms);
-                    _logger.LogDebug("Trying search with original history terms: '{HistoryQuery}'", historyBasedQuery);
+                _logger.LogDebug("No results found with enhanced query, trying simpler fallback");
+                // Fallback to simple search if enhanced search fails
+                searchResults = request.UseSemanticSearch 
+                    ? await _searchService.HybridSearchAsync(request.Query, queryEmbedding, request.MaxResults * 2, request.DocumentId)
+                    : await _searchService.SearchAsync(request.Query, request.MaxResults * 2);
                     
-                    var historyEmbedding = await _embeddingService.GenerateEmbeddingAsync(historyBasedQuery);
-                    searchResults = request.UseSemanticSearch 
-                        ? await _searchService.HybridSearchAsync(historyBasedQuery, historyEmbedding, request.MaxResults * 4, request.DocumentId)
-                        : await _searchService.SearchAsync(historyBasedQuery, Math.Min(request.MaxResults * 3, 75));
-                    
-                    resultsList = searchResults.GetResults().ToList();
-                }
+                resultsList = searchResults.GetResults().ToList();
             }
 
             // If still no results and we have document references, try searching with document names + current query
@@ -1119,17 +1110,21 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 // Extract from sources section
                 if (inSourcesSection && !string.IsNullOrEmpty(trimmedLine))
                 {
-                    // Format: "- **Quelle 1:** [DocumentName.pdf] - [Topic]"
-                    // Or: "DocumentName.pdf: Topic description"
-                    ExtractDocumentNameFromSourceLine(trimmedLine, documentReferences);
+                    // Simple extraction: Look for document patterns
+                    var docMatches = System.Text.RegularExpressions.Regex.Matches(trimmedLine, 
+                        @"([a-zA-Z0-9\-_]+\.(?:pdf|docx?|txt|md))", 
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (System.Text.RegularExpressions.Match match in docMatches)
+                    {
+                        var docName = match.Groups[1].Value.Trim();
+                        if (docName.Length > 3 && docName.Length < 100)
+                        {
+                            documentReferences.Add(docName);
+                        }
+                    }
                 }
-                
-                // Strategy 2: Look for standalone .pdf/.docx/.md mentions
-                ExtractDocumentNamesFromText(trimmedLine, documentReferences);
             }
-            
-            // Strategy 3: Look for patterns like "Laut [Document]", "In [Document]"
-            ExtractInlineDocumentReferences(message.Content, documentReferences);
         }
 
         var results = documentReferences.Take(5).ToList();
@@ -1249,116 +1244,16 @@ public class SearchOrchestrationService : ISearchOrchestrationService
         if (documentReferences.Any(dr => documentId.Contains(dr, StringComparison.OrdinalIgnoreCase)))
             return true;
 
-        // Check against metadata (filename) - handle different metadata formats safely
+        // Check against metadata/filename (simplified)
         if (!string.IsNullOrEmpty(metadata))
         {
-            try
-            {
-                // Try to parse as JSON first
-                if (metadata.StartsWith("{") && metadata.EndsWith("}"))
-                {
-                    var metadataObj = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(metadata);
-                    if (metadataObj?.TryGetValue("originalFileName", out var filenameObj) == true)
-                    {
-                        var filename = filenameObj.ToString();
-                        if (!string.IsNullOrEmpty(filename) && CheckFilenameMatch(filename, documentReferences))
-                            return true;
-                    }
-                }
-                else
-                {
-                    // If not JSON, treat metadata as plain text filename
-                    if (CheckFilenameMatch(metadata, documentReferences))
-                        return true;
-                }
-            }
-            catch (System.Text.Json.JsonException)
-            {
-                // If JSON parsing fails, treat metadata as plain text
-                if (CheckFilenameMatch(metadata, documentReferences))
-                    return true;
-            }
+            if (documentReferences.Any(dr => 
+                metadata.Contains(dr, StringComparison.OrdinalIgnoreCase) ||
+                dr.Contains(metadata, StringComparison.OrdinalIgnoreCase)))
+                return true;
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Checks if a filename matches any document reference
-    /// </summary>
-    private bool CheckFilenameMatch(string filename, List<string> documentReferences)
-    {
-        if (string.IsNullOrEmpty(filename)) return false;
-
-        // Direct filename check
-        if (documentReferences.Any(dr => filename.Contains(dr, StringComparison.OrdinalIgnoreCase) ||
-                                         dr.Contains(filename, StringComparison.OrdinalIgnoreCase)))
-            return true;
-
-        // Check filename without extension
-        var nameWithoutExt = Path.GetFileNameWithoutExtension(filename);
-        if (!string.IsNullOrEmpty(nameWithoutExt) && 
-            documentReferences.Any(dr => dr.Equals(nameWithoutExt, StringComparison.OrdinalIgnoreCase)))
-            return true;
-
-        return false;
-    }
-
-    /// <summary>
-    /// Extracts original query terms that were used in previous searches
-    /// </summary>
-    private List<string> ExtractOriginalQueryTermsFromHistory(List<ChatMessage>? chatHistory)
-    {
-        if (chatHistory?.Any() != true) return new List<string>();
-
-        var queryTerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        
-        // Look for user questions in recent history
-        var userMessages = chatHistory
-            .Where(m => m.Role.ToLower() == "user")
-            .TakeLast(3)
-            .Select(m => m.Content);
-
-        foreach (var message in userMessages)
-        {
-            if (string.IsNullOrWhiteSpace(message)) continue;
-
-            // Extract meaningful terms from user questions
-            var terms = message
-                .Split(new[] { ' ', '?', '!', '.' }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(t => t.Length > 2 && !IsStopWord(t))
-                .Take(8);
-
-            foreach (var term in terms)
-            {
-                queryTerms.Add(term.Trim());
-            }
-        }
-
-        return queryTerms.ToList();
-    }
-
-    /// <summary>
-    /// Extracts terms from follow-up questions that might help find related documents
-    /// </summary>
-    private List<string> ExtractFollowUpTerms(string query)
-    {
-        if (string.IsNullOrWhiteSpace(query)) return new List<string>();
-
-        var terms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        
-        // Extract meaningful terms from the current query
-        var words = query
-            .Split(new[] { ' ', ',', '.', '?', '!', ';', ':' }, StringSplitOptions.RemoveEmptyEntries)
-            .Where(w => w.Length > 3 && !IsStopWord(w) && !IsFollowUpWord(w))
-            .Take(5); // Limit to prevent too many terms
-
-        foreach (var word in words)
-        {
-            terms.Add(word.Trim());
-        }
-
-        return terms.ToList();
     }
 
     /// <summary>
