@@ -147,13 +147,6 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     FileSizeBytes = metadata?.FileSizeBytes ?? result.Document.FileSizeBytes
                     // Download: Use POST /download/token with documentId if OriginalFileName != null
                 });
-
-                // Debug logging for missing metadata
-                if (string.IsNullOrEmpty(results.Last().OriginalFileName))
-                {
-                    _logger.LogWarning("Missing OriginalFileName for DocumentId: {DocumentId}, ChunkIndex: {ChunkIndex}, Metadata: {Metadata}",
-                        result.Document.DocumentId, result.Document.ChunkIndex, result.Document.Metadata);
-                }
             }
 
             // 5. Apply simplified score-based filtering
@@ -165,7 +158,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             // 5. Apply source diversification (max 1 chunk per document) and limit to MaxSourcesForAnswer
             var maxSources = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
 
-            // CRITICAL FIX: For potential follow-up scenarios, preserve more documents
+            // For potential follow-up scenarios, preserve more documents
             // Check if this looks like a first question that might have follow-ups
             bool mightHaveFollowUps = request.ChatHistory?.Any() != true || // First question
                                      filteredResults.Select(r => r.DocumentId).Distinct().Count() > 1; // Multiple relevant docs
@@ -413,7 +406,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
 
         _logger.LogInformation("Searching within {Count} documents from current search results for follow-up question", documentIds.Count);
 
-        // CRITICAL FIX: Load metadata bulk for all documents to ensure OriginalFileName is available
+        // Load metadata bulk for all documents to ensure OriginalFileName is available
         var metadataBulk = await LoadMetadataBulkAsync(documentIds);
 
         foreach (var docId in documentIds)
@@ -512,7 +505,16 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     var searchResults = await _searchService.HybridSearchAsync(
                         variation, variationEmbedding, request.MaxResults, request.DocumentId);
 
-                    foreach (var result in searchResults.GetResults().Take(3)) // Limit per variation
+                    var resultsList = searchResults.GetResults().Take(3).ToList(); // Limit per variation
+                    
+                    // Load metadata for unique documents in these results
+                    var uniqueDocumentIds = resultsList
+                        .Select(r => r.Document.DocumentId)
+                        .Distinct()
+                        .ToList();
+                    var metadataBulk = await LoadMetadataBulkAsync(uniqueDocumentIds);
+
+                    foreach (var result in resultsList)
                     {
                         double vectorScore = result.Score ?? 0.0;
                         double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
@@ -528,7 +530,27 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                             combinedScore *= 1.5; // 50% boost for context search results
                         }
 
-                        results.Add(CreateSearchResultFromDocument(result, combinedScore, vectorScore));
+                        // Get metadata for this document (same logic as main search)
+                        metadataBulk.TryGetValue(result.Document.DocumentId, out var metadata);
+
+                        results.Add(new SearchResult
+                        {
+                            Id = result.Document.Id,
+                            Content = result.Document.Content,
+                            DocumentId = result.Document.DocumentId,
+                            ChunkIndex = result.Document.ChunkIndex,
+                            Score = combinedScore,
+                            VectorScore = vectorScore,
+                            Metadata = result.Document.Metadata,
+                            CreatedAt = result.Document.CreatedAt,
+                            // Use bulk-loaded metadata or fallback to current chunk metadata
+                            BlobPath = metadata?.BlobPath ?? result.Document.BlobPath,
+                            BlobContainer = metadata?.BlobContainer ?? result.Document.BlobContainer,
+                            OriginalFileName = metadata?.OriginalFileName ?? result.Document.OriginalFileName,
+                            ContentType = metadata?.ContentType ?? result.Document.ContentType,
+                            TextContentBlobPath = metadata?.TextContentBlobPath ?? result.Document.TextContentBlobPath,
+                            FileSizeBytes = metadata?.FileSizeBytes ?? result.Document.FileSizeBytes
+                        });
                     }
                 }
             }
@@ -539,40 +561,6 @@ public class SearchOrchestrationService : ISearchOrchestrationService
         }
 
         return results;
-    }
-
-    /// <summary>
-    /// Checks if content contains keywords from chat history
-    /// </summary>
-    private bool ContainsHistoryKeywords(string content, List<string> historyKeywords)
-    {
-        var contentLower = content.ToLower();
-        return historyKeywords.Any(keyword => contentLower.Contains(keyword.ToLower()));
-    }
-
-    /// <summary>
-    /// Helper method to create SearchResult from Azure search result
-    /// </summary>
-    private SearchResult CreateSearchResultFromDocument(Azure.Search.Documents.Models.SearchResult<DocumentChunk> result,
-        double combinedScore, double vectorScore)
-    {
-        return new SearchResult
-        {
-            Id = result.Document.Id,
-            Content = result.Document.Content,
-            DocumentId = result.Document.DocumentId,
-            ChunkIndex = result.Document.ChunkIndex,
-            Score = combinedScore,
-            VectorScore = vectorScore,
-            Metadata = result.Document.Metadata,
-            CreatedAt = result.Document.CreatedAt,
-            BlobPath = result.Document.BlobPath,
-            BlobContainer = result.Document.BlobContainer,
-            OriginalFileName = result.Document.OriginalFileName,
-            ContentType = result.Document.ContentType,
-            TextContentBlobPath = result.Document.TextContentBlobPath,
-            FileSizeBytes = result.Document.FileSizeBytes
-        };
     }
 
     /// <summary>

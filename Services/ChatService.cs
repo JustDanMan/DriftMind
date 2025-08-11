@@ -281,6 +281,13 @@ Remember: You are helping users access and explore their document knowledge thro
         var adjacentChunksToInclude = _configuration.GetValue<int>("ChatService:AdjacentChunksToInclude", 2);
         _logger.LogInformation("Building context with {AdjacentCount} adjacent chunks for each relevant result", adjacentChunksToInclude);
 
+        // Create a map of DocumentId → OriginalFileName from search results
+        // This uses the metadata that was already loaded by SearchOrchestrationService
+        var documentMetadata = searchResults
+            .Where(r => !string.IsNullOrEmpty(r.OriginalFileName))
+            .GroupBy(r => r.DocumentId)
+            .ToDictionary(g => g.Key, g => g.First().OriginalFileName);
+
         // Group results by document to process them efficiently
         var resultsByDocument = searchResults
             .GroupBy(r => r.DocumentId)
@@ -322,11 +329,11 @@ Remember: You are helping users access and explore their document knowledge thro
                     // Build context section for this expanded chunk group
                     contextBuilder.AppendLine($"=== SOURCE {sourceCounter} ===");
                     
-                    // CRITICAL FIX: Ensure we never show DocumentIDs as filenames
+                    // Use pre-loaded metadata from SearchOrchestrationService
                     string displayFileName;
-                    if (!string.IsNullOrEmpty(originalResult.OriginalFileName))
+                    if (documentMetadata.TryGetValue(documentId, out var fileName) && !string.IsNullOrEmpty(fileName))
                     {
-                        displayFileName = originalResult.OriginalFileName;
+                        displayFileName = fileName;
                     }
                     else
                     {
@@ -377,11 +384,11 @@ Remember: You are helping users access and explore their document knowledge thro
                     {
                         contextBuilder.AppendLine($"=== SOURCE {sourceCounter} (FALLBACK) ===");
                         
-                        // CRITICAL FIX: Ensure we never show DocumentIDs as filenames in fallback
+                        // Use pre-loaded metadata from SearchOrchestrationService in fallback
                         string fallbackFileName;
-                        if (!string.IsNullOrEmpty(originalResult.OriginalFileName))
+                        if (documentMetadata.TryGetValue(documentId, out var fileName) && !string.IsNullOrEmpty(fileName))
                         {
-                            fallbackFileName = originalResult.OriginalFileName;
+                            fallbackFileName = fileName;
                         }
                         else
                         {

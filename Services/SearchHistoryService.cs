@@ -128,6 +128,18 @@ public class SearchHistoryService : ISearchHistoryService
                 return currentResults ?? new List<SearchResult>();
             }
 
+            // Load metadata for unique documents (same logic as SearchOrchestrationService)
+            var uniqueDocumentIds = resultsList
+                .Select(r => r.Document.DocumentId)
+                .Distinct()
+                .ToList();
+            
+            // Load metadata from Chunk 0 for all unique documents
+            var chunk0s = await _searchService.GetChunk0sForDocumentsAsync(uniqueDocumentIds);
+            var metadataDict = chunk0s.ToDictionary(
+                chunk => chunk.DocumentId,
+                chunk => chunk);
+
             var enhancedResults = new List<SearchResult>();
 
             foreach (var result in resultsList)
@@ -169,10 +181,13 @@ public class SearchHistoryService : ISearchHistoryService
                         VectorScore = vectorScore,
                         Metadata = result.Document.Metadata,
                         CreatedAt = result.Document.CreatedAt,
-                        BlobPath = result.Document.BlobPath,
-                        BlobContainer = result.Document.BlobContainer,
-                        OriginalFileName = result.Document.OriginalFileName,
-                        ContentType = result.Document.ContentType
+                        // Use metadata from chunk 0 or fallback to current chunk metadata
+                        BlobPath = metadataDict.TryGetValue(result.Document.DocumentId, out var metadata) ? metadata.BlobPath : result.Document.BlobPath,
+                        BlobContainer = metadata?.BlobContainer ?? result.Document.BlobContainer,
+                        OriginalFileName = metadata?.OriginalFileName ?? result.Document.OriginalFileName,
+                        ContentType = metadata?.ContentType ?? result.Document.ContentType,
+                        TextContentBlobPath = metadata?.TextContentBlobPath ?? result.Document.TextContentBlobPath,
+                        FileSizeBytes = metadata?.FileSizeBytes ?? result.Document.FileSizeBytes
                     });
                 }
                 catch (Exception ex)
