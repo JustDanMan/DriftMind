@@ -47,6 +47,7 @@ builder.Services.AddScoped<IFileProcessingService, FileProcessingService>();
 builder.Services.AddScoped<IDocumentProcessingService, DocumentProcessingService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IQueryExpansionService, QueryExpansionService>();
+builder.Services.AddScoped<ISearchHistoryService, SearchHistoryService>();
 builder.Services.AddScoped<ISearchOrchestrationService, SearchOrchestrationService>();
 builder.Services.AddScoped<IDocumentManagementService, DocumentManagementService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
