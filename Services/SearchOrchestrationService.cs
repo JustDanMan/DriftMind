@@ -11,6 +11,10 @@ public interface ISearchOrchestrationService
 public class SearchOrchestrationService : ISearchOrchestrationService
 {
     private readonly ISearchService _searchService;
+    
+    // Cache for previous search results to support follow-up questions
+    private static readonly Dictionary<string, List<SearchResult>> _searchResultsCache = new();
+    private static readonly object _cacheLock = new object();
     private readonly IEmbeddingService _embeddingService;
     private readonly IChatService _chatService;
     private readonly IQueryExpansionService _queryExpansionService;
@@ -47,6 +51,29 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                     Success = false,
                     Message = "Search query cannot be empty."
                 };
+            }
+
+            // CRITICAL: Check for follow-up questions first and use previous context
+            bool isFollowUp = IsFollowUpQuestion(request.Query);
+            if (isFollowUp && request.ChatHistory?.Any() == true)
+            {
+                _logger.LogInformation("Detected follow-up question: '{Query}' - searching within previous context", request.Query);
+                
+                // Extract document IDs from the last assistant response with sources
+                var previousDocumentIds = ExtractDocumentIdsFromChatHistory(request.ChatHistory);
+                
+                if (previousDocumentIds.Any())
+                {
+                    _logger.LogInformation("Found {Count} document IDs from previous responses: {DocumentIds}", 
+                        previousDocumentIds.Count, string.Join(", ", previousDocumentIds));
+                    
+                    // Search within these specific documents only
+                    return await SearchWithinSpecificDocuments(request, previousDocumentIds);
+                }
+                else
+                {
+                    _logger.LogWarning("No document IDs found in chat history for follow-up question");
+                }
             }
 
             // 1. Query expansion if enabled
@@ -137,6 +164,19 @@ public class SearchOrchestrationService : ISearchOrchestrationService
 
             // 5. Apply source diversification (max 1 chunk per document) and limit to MaxSourcesForAnswer
             var maxSources = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
+            
+            // CRITICAL FIX: For potential follow-up scenarios, preserve more documents
+            // Check if this looks like a first question that might have follow-ups
+            bool mightHaveFollowUps = request.ChatHistory?.Any() != true || // First question
+                                     filteredResults.Select(r => r.DocumentId).Distinct().Count() > 1; // Multiple relevant docs
+            
+            if (mightHaveFollowUps)
+            {
+                // Use higher limit to preserve more documents for potential follow-ups
+                maxSources = Math.Max(maxSources, Math.Min(10, filteredResults.Select(r => r.DocumentId).Distinct().Count()));
+                _logger.LogInformation("🔄 PRESERVING SOURCES: Increased maxSources to {MaxSources} for potential follow-ups", maxSources);
+            }
+            
             var diversifiedResults = filteredResults
                 .GroupBy(r => r.DocumentId)
                 .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
@@ -160,23 +200,55 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             var finalResults = diversifiedResults;
             if (request.ChatHistory?.Any() == true)
             {
-                bool isFollowUp = IsFollowUpQuestion(request.Query);
-                bool isRelatedTopic = !isFollowUp && await IsRelatedTopicQuestionAsync(request.Query, request.ChatHistory);
+                bool isFollowUpInContext = IsFollowUpQuestion(request.Query);
+                bool isRelatedTopic = !isFollowUpInContext && await IsRelatedTopicQuestionAsync(request.Query, request.ChatHistory);
                 
                 _logger.LogInformation("Search strategy analysis - IsFollowUp: {IsFollowUp}, IsRelatedTopic: {IsRelatedTopic}, Query: '{Query}'", 
-                    isFollowUp, isRelatedTopic, request.Query);
+                    isFollowUpInContext, isRelatedTopic, request.Query);
                 
-                if (isFollowUp || isRelatedTopic)
+                if (isFollowUpInContext || isRelatedTopic)
                 {
-                    var enhancedResults = await TryEnhancedSearchWithHistoryAsync(request, searchQuery, queryEmbedding);
+                    List<SearchResult> contextualResults = diversifiedResults ?? new List<SearchResult>();
+                    
+                    // For follow-up questions, use a more intelligent approach:
+                    // 1. If we have meaningful current results (>0), use them for context
+                    // 2. Only fall back to chat history extraction if current results are poor
+                    if (isFollowUp)
+                    {
+                        bool hasGoodCurrentResults = diversifiedResults?.Any() == true;
+                        
+                        if (!hasGoodCurrentResults)
+                        {
+                            // Only try to extract from chat history if current results are poor
+                            var previousResults = await ExtractPreviousSearchResultsFromHistory(request.ChatHistory);
+                            if (previousResults?.Any() == true)
+                            {
+                                _logger.LogInformation("🔄 FOLLOW-UP PRIORITY: Using {Count} previous search results from chat history", 
+                                    previousResults.Count);
+                                contextualResults = previousResults;
+                            }
+                            else
+                            {
+                                _logger.LogInformation("🔄 FOLLOW-UP FALLBACK: No good current or previous results found");
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogInformation("🔄 FOLLOW-UP CONTEXT: Using {Count} current search results as context", 
+                                diversifiedResults?.Count ?? 0);
+                        }
+                    }
+                    
+                    // Pass contextual results (current or previous) to enhanced search
+                    var enhancedResults = await TryEnhancedSearchWithHistoryAsync(request, searchQuery, queryEmbedding, contextualResults);
                     _logger.LogInformation("Enhanced search returned {EnhancedCount} results", enhancedResults.Count);
                     
-                    finalResults = CombineAndPrioritizeResults(diversifiedResults, enhancedResults, request.MaxResults);
+                    finalResults = CombineAndPrioritizeResults(diversifiedResults ?? new List<SearchResult>(), enhancedResults, request.MaxResults);
                     
-                    if (finalResults.Count > diversifiedResults.Count)
+                    if (finalResults.Count > (diversifiedResults?.Count ?? 0))
                     {
                         _logger.LogInformation("{SearchType} search enhanced results from {OriginalCount} to {FinalCount}", 
-                            isFollowUp ? "Follow-up" : "Related topic", diversifiedResults.Count, finalResults.Count);
+                            isFollowUp ? "Follow-up" : "Related topic", diversifiedResults?.Count ?? 0, finalResults.Count);
                     }
                 }
             }
@@ -252,14 +324,19 @@ public class SearchOrchestrationService : ISearchOrchestrationService
 
     private List<SearchResult> FilterResults(List<SearchResult> results, SearchRequest request)
     {
-        var minScore = _configuration.GetValue<double>("ChatService:MinScoreForAnswer", 0.25);
+        var minScore = _configuration.GetValue<double>("ChatService:MinScoreForAnswer", 0.15);
         
-        // For follow-up questions, use a more lenient threshold
+        // For follow-up questions, use an even more lenient threshold
         bool isFollowUp = IsFollowUpQuestion(request.Query);
         if (isFollowUp)
         {
-            minScore = Math.Min(minScore, 0.15); // Lower threshold for follow-up questions
-            _logger.LogDebug("Using lenient filtering for follow-up question: MinScore lowered to {MinScore}", minScore);
+            minScore = 0.05; // Very low threshold for follow-up questions to capture relevant context
+            _logger.LogDebug("Using very lenient filtering for follow-up question: MinScore lowered to {MinScore}", minScore);
+        }
+        else
+        {
+            // Use the configured threshold for regular questions
+            _logger.LogDebug("Using configured filtering: MinScore set to {MinScore}", minScore);
         }
         
         _logger.LogDebug("Filtering {ResultCount} results for query: '{Query}' using MinScore: {MinScore}", 
@@ -341,75 +418,94 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     }
 
     /// <summary>
-    /// For follow-up questions, search primarily within recently referenced documents
+    /// For follow-up questions, search within the documents from current search results
+    /// This is more reliable than extracting from chat history
     /// </summary>
-    private async Task<List<SearchResult>> SearchWithinRecentlyReferencedDocumentsAsync(
-        SearchRequest request, string searchQuery, IReadOnlyList<float> queryEmbedding)
+    private async Task<List<SearchResult>> SearchWithinCurrentDocumentsAsync(
+        SearchRequest request, string searchQuery, IReadOnlyList<float> queryEmbedding, List<SearchResult> currentResults)
     {
         var results = new List<SearchResult>();
+        var documentIds = currentResults.Select(r => r.DocumentId).Distinct().Take(3).ToList();
         
-        // Strategy 1: Extract document references and search within them
-        var recentDocuments = await ExtractRecentlyReferencedDocumentIdsAsync(request.ChatHistory);
+        _logger.LogInformation("Searching within {Count} documents from current search results for follow-up question", documentIds.Count);
         
-        if (recentDocuments.Any())
+        // CRITICAL FIX: Load metadata bulk for all documents to ensure OriginalFileName is available
+        var metadataBulk = await LoadMetadataBulkAsync(documentIds);
+        
+        foreach (var docId in documentIds)
         {
-            _logger.LogInformation("Searching within {Count} recently referenced documents for follow-up question", recentDocuments.Count);
+            _logger.LogDebug("Searching within document: {DocumentId}", docId);
             
-            foreach (var docId in recentDocuments.Take(2))
+            try
             {
-                _logger.LogDebug("Searching within document: {DocumentId}", docId);
+                var docSpecificResults = await _searchService.HybridSearchAsync(
+                    searchQuery, queryEmbedding, request.MaxResults * 2, docId);
                 
-                try
+                var docResultsList = docSpecificResults.GetResults().ToList();
+                _logger.LogDebug("Found {Count} results in document {DocumentId}", docResultsList.Count, docId);
+                
+                foreach (var result in docResultsList)
                 {
-                    var docSpecificResults = await _searchService.HybridSearchAsync(
-                        searchQuery, queryEmbedding, request.MaxResults * 2, docId);
+                    double vectorScore = result.Score ?? 0.0;
+                    double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
+                        result.Document.Content, request.Query, vectorScore);
                     
-                    var docResultsList = docSpecificResults.GetResults().ToList();
-                    _logger.LogDebug("Found {Count} results in document {DocumentId}", docResultsList.Count, docId);
+                    // Strong boost for same-document results in follow-up questions
+                    combinedScore *= 2.5;
                     
-                    foreach (var result in docResultsList)
+                    _logger.LogDebug("Applied follow-up current-document boost to {DocumentId} (score: {Score:F3})", 
+                        result.Document.DocumentId, combinedScore);
+                    
+                    // Create SearchResult with proper metadata
+                    var searchResult = new SearchResult
                     {
-                        double vectorScore = result.Score ?? 0.0;
-                        double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
-                            result.Document.Content, request.Query, vectorScore);
+                        Id = result.Document.Id,
+                        Content = result.Document.Content,
+                        DocumentId = result.Document.DocumentId,
+                        ChunkIndex = result.Document.ChunkIndex,
+                        Score = combinedScore,
+                        VectorScore = vectorScore,
+                        Metadata = result.Document.Metadata,
+                        CreatedAt = result.Document.CreatedAt
+                    };
+
+                    // Add metadata if available, with fallback to document metadata
+                    if (metadataBulk.TryGetValue(result.Document.DocumentId, out var metadata))
+                    {
+                        searchResult.BlobPath = metadata.BlobPath;
+                        searchResult.BlobContainer = metadata.BlobContainer;
+                        searchResult.OriginalFileName = metadata.OriginalFileName;
+                        searchResult.ContentType = metadata.ContentType;
+                        searchResult.TextContentBlobPath = metadata.TextContentBlobPath;
+                        searchResult.FileSizeBytes = metadata.FileSizeBytes;
                         
-                        // MASSIVE boost for same-document results in follow-up questions
-                        combinedScore *= 3.0;
-                        
-                        _logger.LogDebug("Applied follow-up same-document boost to {DocumentId} (score: {Score:F3})", 
-                            result.Document.DocumentId, combinedScore);
-                        
-                        results.Add(CreateSearchResultFromDocument(result, combinedScore, vectorScore));
+                        _logger.LogDebug("✅ METADATA LOADED: {DocumentId} -> {FileName}", 
+                            result.Document.DocumentId, metadata.OriginalFileName ?? "[NULL]");
                     }
+                    else
+                    {
+                        // Fallback to document metadata if bulk metadata is not available
+                        searchResult.BlobPath = result.Document.BlobPath;
+                        searchResult.BlobContainer = result.Document.BlobContainer;
+                        searchResult.OriginalFileName = result.Document.OriginalFileName;
+                        searchResult.ContentType = result.Document.ContentType;
+                        searchResult.TextContentBlobPath = result.Document.TextContentBlobPath;
+                        searchResult.FileSizeBytes = result.Document.FileSizeBytes;
+                        
+                        _logger.LogWarning("⚠️ NO METADATA: {DocumentId} using document OriginalFileName: {FileName}", 
+                            result.Document.DocumentId, result.Document.OriginalFileName ?? "[NULL]");
+                    }
+
+                    results.Add(searchResult);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to search in document {DocumentId}, trying as filename", docId);
-                    
-                    // Fallback: Try searching for content that mentions this "document ID" as text
-                    await TrySearchByDocumentKeyword(docId, searchQuery, queryEmbedding, request, results);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to search in current document {DocumentId}", docId);
             }
         }
         
-        // Strategy 2: If no specific documents found or limited results, use context-based search
-        if (results.Count < 3) // If we have less than 3 good results, try context approach
-        {
-            _logger.LogInformation("Limited document-specific results ({Count}), trying context-enhanced search", results.Count);
-            
-            var contextResults = await SearchWithHistoryContextAsync(request, searchQuery, queryEmbedding);
-            results.AddRange(contextResults);
-        }
-        
-        var finalResults = results
-            .GroupBy(r => r.Id) // Remove duplicates by ID
-            .Select(g => g.OrderByDescending(r => r.Score).First()) // Keep highest scored version
-            .OrderByDescending(r => r.Score)
-            .Take(request.MaxResults)
-            .ToList();
-        
-        _logger.LogInformation("Follow-up search returned {Count} results", finalResults.Count);
-        return finalResults;
+        return results;
     }
 
     /// <summary>
@@ -482,40 +578,6 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     }
 
     /// <summary>
-    /// Helper method to search by document keyword when direct document ID fails
-    /// </summary>
-    private async Task TrySearchByDocumentKeyword(string docKeyword, string searchQuery, 
-        IReadOnlyList<float> queryEmbedding, SearchRequest request, List<SearchResult> results)
-    {
-        try
-        {
-            var keywordQuery = $"{searchQuery} {docKeyword}";
-            var keywordResults = await _searchService.HybridSearchAsync(
-                keywordQuery, queryEmbedding, request.MaxResults, request.DocumentId);
-            
-            foreach (var result in keywordResults.GetResults())
-            {
-                // Check if the result content actually relates to the document keyword
-                if (result.Document.Content.ToLower().Contains(docKeyword.ToLower()) ||
-                    result.Document.OriginalFileName?.ToLower().Contains(docKeyword.ToLower()) == true)
-                {
-                    double vectorScore = result.Score ?? 0.0;
-                    double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
-                        result.Document.Content, request.Query, vectorScore);
-                    
-                    combinedScore *= 2.5; // Strong boost for keyword-matched results
-                    
-                    results.Add(CreateSearchResultFromDocument(result, combinedScore, vectorScore));
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed keyword search for document: {DocKeyword}", docKeyword);
-        }
-    }
-
-    /// <summary>
     /// Helper method to create SearchResult from Azure search result
     /// </summary>
     private SearchResult CreateSearchResultFromDocument(Azure.Search.Documents.Models.SearchResult<DocumentChunk> result, 
@@ -541,148 +603,126 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     }
 
     /// <summary>
-    /// Extracts document IDs from recent chat history based on source references
+    /// Extracts document references from previous search results in chat history
     /// </summary>
-    private async Task<List<string>> ExtractRecentlyReferencedDocumentIdsAsync(List<ChatMessage>? chatHistory)
+    private async Task<List<SearchResult>?> ExtractPreviousSearchResultsFromHistory(List<ChatMessage> chatHistory)
     {
-        if (chatHistory?.Any() != true) return new List<string>();
-        
-        var documentIds = new List<string>();
-        
-        // Look in the last 2 assistant messages for document references
-        var recentAssistantMessages = chatHistory
-            .Where(m => m.Role.ToLower() == "assistant")
-            .TakeLast(2)
-            .ToList();
-        
-        foreach (var message in recentAssistantMessages)
-        {
-            _logger.LogDebug("🔍 ANALYZING CHAT MESSAGE: {MessagePreview}", 
-                message.Content.Length > 100 ? message.Content.Substring(0, 100) + "..." : message.Content);
-            
-            // Method 1: Try to extract DocumentId patterns directly from context text
-            // Look for patterns like DocumentId mentions in the response
-            var docIdMatches = System.Text.RegularExpressions.Regex.Matches(
-                message.Content, @"\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b", 
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            
-            foreach (System.Text.RegularExpressions.Match match in docIdMatches)
-            {
-                documentIds.Add(match.Groups[1].Value);
-                _logger.LogInformation("📄 FOUND GUID DocumentId: {DocumentId}", match.Groups[1].Value);
-            }
-            
-            // Method 2: Extract document filenames and find corresponding documents
-            var sourceMatches = System.Text.RegularExpressions.Regex.Matches(
-                message.Content, @"📄 DOCUMENT: ([^\n📍🎯]+?)(?:\n|📍|🎯|$)");
-            
-            _logger.LogDebug("📄 DOCUMENT PATTERN MATCHES: {Count}", sourceMatches.Count);
-            
-            foreach (System.Text.RegularExpressions.Match match in sourceMatches)
-            {
-                var docName = match.Groups[1].Value.Trim();
-                if (!string.IsNullOrEmpty(docName))
-                {
-                    _logger.LogInformation("📄 FOUND DOCUMENT REFERENCE: '{FileName}' - Attempting resolution...", docName);
-                    
-                    // Try multiple search strategies to find the document
-                    var resolvedIds = await TryResolveDocumentName(docName);
-                    documentIds.AddRange(resolvedIds);
-                    
-                    _logger.LogInformation("📄 RESOLVED '{FileName}' → {Count} DocumentIds: {DocumentIds}", 
-                        docName, resolvedIds.Count, string.Join(", ", resolvedIds));
-                }
-            }
-        }
-        
-        var uniqueDocumentIds = documentIds.Distinct().ToList();
-        _logger.LogInformation("Extracted {Count} unique document IDs from chat history: {Documents}", 
-            uniqueDocumentIds.Count, string.Join(", ", uniqueDocumentIds.Take(3)));
-        
-        return uniqueDocumentIds;
-    }
-
-    /// <summary>
-    /// Tries multiple strategies to resolve a document filename to DocumentIds
-    /// </summary>
-    private async Task<List<string>> TryResolveDocumentName(string docName)
-    {
-        var resolvedIds = new List<string>();
-        
         try
         {
-            // Strategy 1: Direct filename search
-            var exactSearch = await _searchService.SearchAsync($"\"{docName}\"", 5);
-            var exactResults = exactSearch.GetResults()
-                .Where(r => !string.IsNullOrEmpty(r.Document.OriginalFileName) && 
-                           r.Document.OriginalFileName.Equals(docName, StringComparison.OrdinalIgnoreCase))
-                .Select(r => r.Document.DocumentId)
-                .Distinct()
-                .ToList();
+            if (chatHistory?.Any() != true)
+                return null;
+
+            // Look for the most recent assistant message with sources
+            var lastAssistantMessage = chatHistory
+                .Where(m => m.Role == "assistant" && !string.IsNullOrEmpty(m.Content))
+                .LastOrDefault();
+
+            if (lastAssistantMessage?.Content == null)
+                return null;
+
+            var documentFilenames = new HashSet<string>();
+
+            // Extract any filename-like patterns from the text
+            var fileExtensions = new[] { "txt", "pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt" };
             
-            if (exactResults.Any())
+            foreach (var extension in fileExtensions)
             {
-                resolvedIds.AddRange(exactResults);
-                _logger.LogDebug("Exact filename match found {Count} documents for '{FileName}'", exactResults.Count, docName);
-            }
-            
-            // Strategy 2: Partial filename search if exact didn't work
-            if (!resolvedIds.Any())
-            {
-                var partialSearch = await _searchService.SearchAsync(docName, 10);
-                var partialResults = partialSearch.GetResults()
-                    .Where(r => !string.IsNullOrEmpty(r.Document.OriginalFileName) && 
-                               r.Document.OriginalFileName.ToLower().Contains(docName.ToLower()))
-                    .Select(r => r.Document.DocumentId)
-                    .Distinct()
-                    .Take(3)
-                    .ToList();
-                
-                if (partialResults.Any())
+                // Look for any text followed by the file extension (very broad pattern)
+                var pattern = @"([a-zA-Z0-9\s_\-\.]+\." + extension + @")";
+                var matches = System.Text.RegularExpressions.Regex.Matches(
+                    lastAssistantMessage.Content, 
+                    pattern, 
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                foreach (System.Text.RegularExpressions.Match match in matches)
                 {
-                    resolvedIds.AddRange(partialResults);
-                    _logger.LogDebug("Partial filename match found {Count} documents for '{FileName}'", partialResults.Count, docName);
-                }
-            }
-            
-            // Strategy 3: Key terms from filename
-            if (!resolvedIds.Any())
-            {
-                var keyTerms = docName.Split(new[] { ' ', '-', '_', '.' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Where(term => term.Length > 3)
-                    .Take(3);
-                
-                if (keyTerms.Any())
-                {
-                    var termQuery = string.Join(" ", keyTerms);
-                    var termSearch = await _searchService.SearchAsync(termQuery, 8);
-                    var termResults = termSearch.GetResults()
-                        .Select(r => r.Document.DocumentId)
-                        .Distinct()
-                        .Take(2)
-                        .ToList();
-                    
-                    if (termResults.Any())
+                    var filename = match.Groups[1].Value.Trim();
+                    if (!string.IsNullOrEmpty(filename) && filename.Length > 5) // Mindestlänge für Dateinamen
                     {
-                        resolvedIds.AddRange(termResults);
-                        _logger.LogDebug("Key terms search found {Count} documents for '{FileName}' using terms: {Terms}", 
-                            termResults.Count, docName, termQuery);
+                        documentFilenames.Add(filename);
                     }
                 }
             }
+
+            if (!documentFilenames.Any())
+            {
+                _logger.LogInformation("📋 NO PREVIOUS RESULTS: No valid filenames found in chat history");
+                return null;
+            }
+
+            _logger.LogInformation("📋 PREVIOUS FILENAMES FOUND: Extracted {Count} filenames from chat history: {Filenames}", 
+                documentFilenames.Count, string.Join(", ", documentFilenames.Take(3)));
+
+            // Search for documents by filename to get DocumentIDs
+            var previousResults = new List<SearchResult>();
+            
+            foreach (var filename in documentFilenames)
+            {
+                try
+                {
+                    // Perform a simple search to find documents with this filename
+                    var searchResults = await _searchService.SearchAsync(filename, 10);
+                    var matchingResults = searchResults.GetResults()
+                        .Where(r => r.Document.OriginalFileName?.Equals(filename, StringComparison.OrdinalIgnoreCase) == true)
+                        .ToList();
+
+                    if (matchingResults.Any())
+                    {
+                        var firstMatch = matchingResults.First();
+                        
+                        // Create a placeholder SearchResult representing this document
+                        previousResults.Add(new SearchResult
+                        {
+                            DocumentId = firstMatch.Document.DocumentId,
+                            Score = 0.8, // High score to prioritize these results
+                            OriginalFileName = firstMatch.Document.OriginalFileName,
+                            BlobPath = firstMatch.Document.BlobPath,
+                            BlobContainer = firstMatch.Document.BlobContainer,
+                            ContentType = firstMatch.Document.ContentType,
+                            TextContentBlobPath = firstMatch.Document.TextContentBlobPath,
+                            FileSizeBytes = firstMatch.Document.FileSizeBytes,
+                            Content = "Previous search context",
+                            ChunkIndex = 0,
+                            Id = $"{firstMatch.Document.DocumentId}_0",
+                            CreatedAt = DateTime.UtcNow
+                        });
+
+                        _logger.LogInformation("📋 FILENAME RESOLVED: {Filename} -> {DocumentId}", 
+                            filename, firstMatch.Document.DocumentId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("📋 FILENAME NOT FOUND: Could not resolve {Filename} to DocumentID", filename);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to resolve filename {Filename} to DocumentID", filename);
+                }
+            }
+
+            if (!previousResults.Any())
+            {
+                _logger.LogInformation("📋 NO DOCUMENTS RESOLVED: Could not resolve any filenames to DocumentIDs");
+                return null;
+            }
+
+            _logger.LogInformation("📋 PREVIOUS RESULTS PREPARED: {Count} documents ready for follow-up search", 
+                previousResults.Count);
+
+            return previousResults;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to resolve document name: {FileName}", docName);
+            _logger.LogError(ex, "Failed to extract previous search results from chat history");
+            return null;
         }
-        
-        return resolvedIds;
     }
 
     /// <summary>
     /// Performs enhanced search using chat history context to find previously referenced documents
     /// </summary>
-    private async Task<List<SearchResult>> TryEnhancedSearchWithHistoryAsync(SearchRequest request, string searchQuery, IReadOnlyList<float> queryEmbedding)
+    private async Task<List<SearchResult>> TryEnhancedSearchWithHistoryAsync(SearchRequest request, string searchQuery, IReadOnlyList<float> queryEmbedding, List<SearchResult>? currentResults = null)
     {
         try
         {
@@ -698,24 +738,77 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             if (isFollowUpQuestion)
             {
                 _logger.LogInformation("🔍 FOLLOW-UP DETECTED: '{Query}' - Starting prioritized search in referenced documents", request.Query);
+                _logger.LogInformation("📊 CURRENT RESULTS: Available={Available}, Count={Count}", 
+                    currentResults?.Any() == true, currentResults?.Count ?? 0);
                 
-                var sameDocResults = await SearchWithinRecentlyReferencedDocumentsAsync(
-                    request, searchQuery, queryEmbedding);
-                
-                if (sameDocResults.Any())
+                // IMPROVED: Use DocumentIDs from current search results for more reliable follow-up search
+                if (currentResults?.Any() == true)
                 {
-                    _logger.LogInformation("✅ FOLLOW-UP SUCCESS: Found {Count} results within recently referenced documents for follow-up question", 
-                        sameDocResults.Count);
+                    var uniqueDocIds = currentResults.Select(r => r.DocumentId).Distinct().ToList();
+                    _logger.LogInformation("📄 USING CURRENT RESULTS: {Count} documents - {DocumentIds}", 
+                        uniqueDocIds.Count, string.Join(", ", uniqueDocIds.Take(3)));
                     
-                    // Log the source documents for debugging
-                    var sourceDocuments = sameDocResults.Select(r => r.OriginalFileName ?? r.DocumentId).Distinct();
-                    _logger.LogInformation("📄 FOLLOW-UP SOURCES: {Sources}", string.Join(", ", sourceDocuments));
+                    var currentDocResults = await SearchWithinCurrentDocumentsAsync(
+                        request, searchQuery, queryEmbedding, currentResults);
                     
-                    return sameDocResults;
+                    if (currentDocResults.Any())
+                    {
+                        _logger.LogInformation("✅ FOLLOW-UP SUCCESS: Found {Count} results within current documents for follow-up question", 
+                            currentDocResults.Count);
+                        
+                        enhancedResults.AddRange(currentDocResults);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("⚠️ FOLLOW-UP EMPTY: No results found within current documents");
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ NO CURRENT RESULTS: Cannot use current documents for follow-up search");
                 }
                 
-                _logger.LogWarning("❌ FOLLOW-UP FALLBACK: No results in referenced documents, falling back to global search for follow-up question");
-                // Continue with normal search below if no results found in referenced documents
+                // FALLBACK: Try a simple context-based search if current results don't work
+                if (enhancedResults.Count < 2)
+                {
+                    _logger.LogInformation("Limited current document results, trying context-enhanced search as fallback");
+                    var contextResults = await SearchWithHistoryContextAsync(request, searchQuery, queryEmbedding);
+                    enhancedResults.AddRange(contextResults);
+                }
+                
+                // EARLY RETURN for follow-up questions if we found good results
+                if (enhancedResults.Any() && enhancedResults.Any(r => r.Score > 0.15))
+                {
+                    _logger.LogInformation("🚀 COMBINING FOLLOW-UP RESULTS: Found {Count} follow-up results, combining with current results", 
+                        enhancedResults.Count);
+                    
+                    // CRITICAL: Always include the current results (diversifiedResults) in follow-up responses
+                    // This ensures that original sources are never lost
+                    var combinedResults = new List<SearchResult>();
+                    
+                    // Add current results with higher priority (they were already relevant)
+                    if (currentResults?.Any() == true)
+                    {
+                        combinedResults.AddRange(currentResults);
+                        _logger.LogInformation("📄 PRESERVING CURRENT: Added {Count} current results from previous search", 
+                            currentResults.Count);
+                    }
+                    
+                    // Add follow-up results
+                    combinedResults.AddRange(enhancedResults);
+                    
+                    // Remove duplicates and apply source diversification
+                    var maxSourcesForFollowUp = _configuration.GetValue<int>("ChatService:MaxSourcesForAnswer", 5);
+                    var followUpResults = combinedResults
+                        .GroupBy(r => r.DocumentId)
+                        .Select(g => g.OrderByDescending(r => r.Score).First()) // Best chunk per document
+                        .OrderByDescending(r => r.Score)
+                        .Take(Math.Min(request.MaxResults, maxSourcesForFollowUp))
+                        .ToList();
+                    
+                    _logger.LogInformation("✅ FOLLOW-UP COMPLETE: Returning {Count} diversified combined results", followUpResults.Count);
+                    return followUpResults;
+                }
             }
             
             // Extract keywords and document references from chat history
@@ -990,6 +1083,24 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 results.Add(searchResult);
             }
 
+            // CRITICAL FIX: Combine follow-up results with regular search results
+            if (enhancedResults.Any())
+            {
+                _logger.LogInformation("🔗 COMBINING RESULTS: Adding {FollowUpCount} follow-up results to {RegularCount} regular results", 
+                    enhancedResults.Count, results.Count);
+                
+                // Add follow-up results to the regular results
+                results.AddRange(enhancedResults);
+                
+                // Remove duplicates based on document ID and content similarity
+                results = results
+                    .GroupBy(r => new { r.DocumentId, r.ChunkIndex })
+                    .Select(g => g.OrderByDescending(r => r.Score).First())
+                    .ToList();
+                
+                _logger.LogInformation("📊 COMBINED TOTAL: {TotalCount} unique results after deduplication", results.Count);
+            }
+            
             // Apply relevance filtering and diversification (using same logic as main search)
             var filteredResults = FilterResults(results, request);
 
@@ -1283,9 +1394,13 @@ public class SearchOrchestrationService : ISearchOrchestrationService
 
         var queryLower = query.ToLowerInvariant().Trim();
         
+        _logger.LogInformation("🔍 FOLLOW-UP CHECK: Query='{Query}', Length={Length}, Words={WordCount}", 
+            query, queryLower.Length, queryLower.Split(' ').Length);
+        
         // Only very short queries are likely follow-ups (reduced threshold)
         if (queryLower.Length < 10 || queryLower.Split(' ').Length <= 2)
         {
+            _logger.LogInformation("✅ FOLLOW-UP DETECTED: Short query - '{Query}'", query);
             return true;
         }
 
@@ -1323,6 +1438,17 @@ public class SearchOrchestrationService : ISearchOrchestrationService
         
         // Check for follow-up patterns
         var hasFollowUpPattern = followUpPatterns.Any(pattern => queryLower.Contains(pattern));
+        
+        if (hasFollowUpPattern)
+        {
+            var matchedPattern = followUpPatterns.First(pattern => queryLower.Contains(pattern));
+            _logger.LogInformation("✅ FOLLOW-UP DETECTED: Pattern match '{Pattern}' in query '{Query}'", 
+                matchedPattern, query);
+        }
+        else
+        {
+            _logger.LogInformation("❌ NO FOLLOW-UP: No pattern match in query '{Query}'", query);
+        }
         
         return hasFollowUpPattern;
     }
@@ -1589,7 +1715,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
         {
             if (!seenDocuments.Contains(result.DocumentId))
             {
-                // History results already have their boosts applied in SearchWithinRecentlyReferencedDocumentsAsync
+                // History results already have their boosts applied in SearchWithinCurrentDocumentsAsync
                 // No additional boost needed here - they should maintain their high scores
                 
                 _logger.LogInformation("History result added: DocumentId={DocumentId}, Score={Score:F3}, OriginalFileName={OriginalFileName}", 
@@ -1615,6 +1741,209 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             .OrderByDescending(r => r.Score)
             .Take(maxResults)
             .ToList();
+    }
+    
+    /// <summary>
+    /// Extracts filenames from chat history to find previous context
+    /// </summary>
+    private List<string> ExtractDocumentIdsFromChatHistory(List<ChatMessage> chatHistory)
+    {
+        var filenames = new HashSet<string>();
+        
+        // Look for the most recent assistant response that contains sources
+        for (int i = chatHistory.Count - 1; i >= 0; i--)
+        {
+            var message = chatHistory[i];
+            if (message.Role == "assistant" && !string.IsNullOrEmpty(message.Content))
+            {
+                // Look for source references in format: **Quelle: [filename]** or similar
+                var sourceMatches = System.Text.RegularExpressions.Regex.Matches(
+                    message.Content, 
+                    @"\*\*Quelle:\s*([^\*]+)\*\*|\*\*Source:\s*([^\*]+)\*\*",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                
+                foreach (System.Text.RegularExpressions.Match match in sourceMatches)
+                {
+                    var filename = match.Groups[1].Success ? match.Groups[1].Value.Trim() : match.Groups[2].Value.Trim();
+                    if (!string.IsNullOrEmpty(filename))
+                    {
+                        filenames.Add(filename);
+                        _logger.LogInformation("Found filename in chat history: '{Filename}'", filename);
+                    }
+                }
+                
+                // If we found sources in this response, use them
+                if (filenames.Any())
+                {
+                    _logger.LogInformation("Found {Count} source references in recent assistant response", filenames.Count);
+                    break;
+                }
+            }
+        }
+        
+        return filenames.ToList();
+    }
+    
+    /// <summary>
+    /// Searches within specific documents identified from previous responses
+    /// </summary>
+    private async Task<SearchResponse> SearchWithinSpecificDocuments(SearchRequest request, List<string> previousFilenames)
+    {
+        try
+        {
+            _logger.LogInformation("Attempting to search within previous context documents: {Filenames} for query: '{Query}'", 
+                string.Join(", ", previousFilenames), request.Query);
+            
+            // Generate embedding for the search query
+            var searchQuery = request.Query;
+            if (request.EnableQueryExpansion)
+            {
+                var expandedQuery = await _queryExpansionService.ExpandQueryAsync(request.Query, request.ChatHistory);
+                if (!string.Equals(expandedQuery, request.Query, StringComparison.OrdinalIgnoreCase))
+                {
+                    searchQuery = expandedQuery;
+                    _logger.LogInformation("Query expanded for context search: '{ExpandedQuery}'", expandedQuery);
+                }
+            }
+            
+            var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(searchQuery);
+            
+            // Search with expanded results to catch documents
+            var searchResults = await _searchService.HybridSearchAsync(searchQuery, queryEmbedding, request.MaxResults * 5);
+            var resultsList = searchResults.GetResults().ToList();
+            
+            var results = new List<SearchResult>();
+            var metadataDict = await LoadMetadataBulkAsync(resultsList.Select(r => r.Document.DocumentId).Distinct().ToList());
+
+            foreach (var result in resultsList)
+            {
+                double vectorScore = result.Score ?? 0.0;
+                double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
+                    result.Document.Content, 
+                    request.Query, 
+                    vectorScore);
+
+                // Get metadata 
+                metadataDict.TryGetValue(result.Document.DocumentId, out var metadata);
+                var originalFileName = metadata?.OriginalFileName ?? result.Document.OriginalFileName;
+
+                // Check if this result is from one of the previous filenames
+                bool isFromPreviousContext = false;
+                if (!string.IsNullOrEmpty(originalFileName))
+                {
+                    isFromPreviousContext = previousFilenames.Any(fn => 
+                        originalFileName.Contains(fn, StringComparison.OrdinalIgnoreCase) ||
+                        fn.Contains(originalFileName, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (isFromPreviousContext)
+                {
+                    // Boost score for documents from previous context
+                    combinedScore = Math.Max(combinedScore, 0.15);
+                    
+                    results.Add(new SearchResult
+                    {
+                        Id = result.Document.Id,
+                        Content = result.Document.Content,
+                        DocumentId = result.Document.DocumentId,
+                        ChunkIndex = result.Document.ChunkIndex,
+                        Score = combinedScore,
+                        VectorScore = vectorScore,
+                        Metadata = result.Document.Metadata,
+                        CreatedAt = result.Document.CreatedAt,
+                        BlobPath = metadata?.BlobPath ?? result.Document.BlobPath,
+                        BlobContainer = metadata?.BlobContainer ?? result.Document.BlobContainer,
+                        OriginalFileName = originalFileName,
+                        ContentType = metadata?.ContentType ?? result.Document.ContentType,
+                        TextContentBlobPath = metadata?.TextContentBlobPath ?? result.Document.TextContentBlobPath,
+                        FileSizeBytes = metadata?.FileSizeBytes ?? result.Document.FileSizeBytes
+                    });
+                    
+                    _logger.LogInformation("Found result from previous context: '{FileName}', Score: {Score:F3}", 
+                        originalFileName, combinedScore);
+                }
+            }
+            
+            if (!results.Any())
+            {
+                _logger.LogWarning("No results found in previous context documents, falling back to general search");
+                // Fall back to normal search logic by continuing with the normal flow
+                return await PerformNormalSearch(request);
+            }
+            
+            // Apply filtering with lenient threshold for follow-up
+            var filteredResults = FilterResults(results, request);
+            
+            _logger.LogInformation("Found {Count} results in previous context documents after filtering", filteredResults.Count);
+            
+            return new SearchResponse
+            {
+                Query = request.Query,
+                Results = filteredResults,
+                Success = true,
+                TotalResults = results.Count,
+                Message = $"Found {filteredResults.Count} results in previous context documents"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error searching within specific documents for follow-up question");
+            // Fall back to normal search
+            return await PerformNormalSearch(request);
+        }
+    }
+    
+    /// <summary>
+    /// Performs the normal search logic (fallback for follow-up questions)
+    /// </summary>
+    private async Task<SearchResponse> PerformNormalSearch(SearchRequest request)
+    {
+        // Fallback to simplified normal search - just continue with regular logic
+        var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(request.Query);
+        var searchResults = await _searchService.HybridSearchAsync(request.Query, queryEmbedding, request.MaxResults * 3);
+        var resultsList = searchResults.GetResults().ToList();
+        
+        var results = new List<SearchResult>();
+        var metadataDict = await LoadMetadataBulkAsync(resultsList.Select(r => r.Document.DocumentId).Distinct().ToList());
+
+        foreach (var result in resultsList)
+        {
+            double vectorScore = result.Score ?? 0.0;
+            double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
+                result.Document.Content, 
+                request.Query, 
+                vectorScore);
+
+            metadataDict.TryGetValue(result.Document.DocumentId, out var metadata);
+
+            results.Add(new SearchResult
+            {
+                Id = result.Document.Id,
+                Content = result.Document.Content,
+                DocumentId = result.Document.DocumentId,
+                ChunkIndex = result.Document.ChunkIndex,
+                Score = combinedScore,
+                VectorScore = vectorScore,
+                Metadata = result.Document.Metadata,
+                CreatedAt = result.Document.CreatedAt,
+                BlobPath = metadata?.BlobPath ?? result.Document.BlobPath,
+                BlobContainer = metadata?.BlobContainer ?? result.Document.BlobContainer,
+                OriginalFileName = metadata?.OriginalFileName ?? result.Document.OriginalFileName,
+                ContentType = metadata?.ContentType ?? result.Document.ContentType,
+                TextContentBlobPath = metadata?.TextContentBlobPath ?? result.Document.TextContentBlobPath,
+                FileSizeBytes = metadata?.FileSizeBytes ?? result.Document.FileSizeBytes
+            });
+        }
+        
+        var filteredResults = FilterResults(results, request);
+        
+        return new SearchResponse
+        {
+            Query = request.Query,
+            Results = filteredResults,
+            Success = true,
+            TotalResults = results.Count
+        };
     }
 
     /// <summary>

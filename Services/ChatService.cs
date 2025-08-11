@@ -232,7 +232,16 @@ End with a **Quellen:** section when referencing previous document information:
 - **Frühere Diskussion:** [Referenced topic from chat history]
 - ***[Document filename]:*** [If specific document name is mentioned in chat history]
 
-Remember: You are helping users access and explore their document knowledge through conversation history. Always include exact document filenames when referencing previous findings and never ask follow-up questions.";
+IMPORTANT SOURCE RULES:
+- Use ONLY real filenames (e.g. ""handbook.pdf"", ""manual.docx"") in citations
+- NEVER use DocumentIDs (long alphanumeric combinations like ""a1b2c3d4-e5f6-789..."") as filenames
+- If chat history only mentions DocumentIDs, use ""Frühere Diskussion"" (Previous Discussion) instead
+- CRITICAL: Only cite sources that actually contain information relevant to answering the current question
+- If chat history doesn't contain relevant information for the current question, clearly state this instead of citing irrelevant sources
+- Example WRONG: ***a1b2c3d4-e5f6-789g-hijk-lmnop456789q:*** Information...
+- Example CORRECT: ***Benutzerhandbuch.pdf:*** Information... OR **Frühere Diskussion:** Information... OR no citations if no relevant info exists
+
+Remember: You are helping users access and explore their document knowledge through conversation history. Use only real filenames, never internal document IDs in citations. Never ask follow-up questions.";
 
             var messages = new List<OpenAI.Chat.ChatMessage>();
             messages.Add(new SystemChatMessage(systemPrompt));
@@ -312,7 +321,21 @@ Remember: You are helping users access and explore their document knowledge thro
 
                     // Build context section for this expanded chunk group
                     contextBuilder.AppendLine($"=== SOURCE {sourceCounter} ===");
-                    contextBuilder.AppendLine($"📄 DOCUMENT: {originalResult.OriginalFileName ?? documentId}");
+                    
+                    // CRITICAL FIX: Ensure we never show DocumentIDs as filenames
+                    string displayFileName;
+                    if (!string.IsNullOrEmpty(originalResult.OriginalFileName))
+                    {
+                        displayFileName = originalResult.OriginalFileName;
+                    }
+                    else
+                    {
+                        displayFileName = $"Document-{sourceCounter}";
+                        _logger.LogWarning("No OriginalFileName available for DocumentId {DocumentId}, using fallback: {FileName}", 
+                            documentId, displayFileName);
+                    }
+                    
+                    contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {displayFileName}");
                     contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
                     contextBuilder.AppendLine($"📍 TARGET CHUNK: {chunkIndex} (with {adjacentChunks.Count - 1} adjacent chunks)");
                     contextBuilder.AppendLine();
@@ -353,7 +376,21 @@ Remember: You are helping users access and explore their document knowledge thro
                     if (originalResult != null)
                     {
                         contextBuilder.AppendLine($"=== SOURCE {sourceCounter} (FALLBACK) ===");
-                        contextBuilder.AppendLine($"📄 DOCUMENT: {originalResult.OriginalFileName ?? documentId}");
+                        
+                        // CRITICAL FIX: Ensure we never show DocumentIDs as filenames in fallback
+                        string fallbackFileName;
+                        if (!string.IsNullOrEmpty(originalResult.OriginalFileName))
+                        {
+                            fallbackFileName = originalResult.OriginalFileName;
+                        }
+                        else
+                        {
+                            fallbackFileName = $"Document-{sourceCounter}";
+                            _logger.LogWarning("No OriginalFileName in fallback for DocumentId {DocumentId}, using: {FileName}", 
+                                documentId, fallbackFileName);
+                        }
+                        
+                        contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {fallbackFileName}");
                         contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
                         contextBuilder.AppendLine($"📍 CHUNK: {chunkIndex}");
                         contextBuilder.AppendLine();
@@ -418,7 +455,14 @@ End with a **Quellen:** section listing the sources used with their exact docume
 - **Quelle 1:** *[Exact document filename]* - [Relevant excerpt or topic]
 - **Quelle 2:** *[Exact document filename]* - [Relevant excerpt or topic]
 
-Remember: DriftMind is a tool to access document knowledge, not a general AI assistant. Always include exact document filenames in citations and never ask follow-up questions.";
+IMPORTANT SOURCE RULES:
+- Use ONLY real filenames (e.g. ""user-manual.pdf"", ""instructions.docx"") in citations
+- NEVER use DocumentIDs (long alphanumeric combinations) as filenames
+- If no real filenames are available, use generic descriptions like ""Document 1"", ""Document 2""
+- CRITICAL: Only cite sources that actually contain information relevant to answering the current question
+- If provided sources don't contain relevant information, do NOT cite them in the Quellen section
+
+Remember: DriftMind is a tool to access document knowledge, not a general AI assistant. Use only real filenames in citations, never internal document IDs. Never ask follow-up questions.";
     }
 
     private string BuildUserPrompt(string query, string context)
@@ -477,6 +521,8 @@ STRICT ATTRIBUTION RULES:
 - If you use information from SOURCE 2, cite the document filename from SOURCE 2  
 - NEVER attribute information from one source to a different source's document
 - When uncertain about source attribution, DO NOT make citations
+- CRITICAL: If no sources contain relevant information for the current question, do NOT cite any sources
+- Only cite sources that actually contain information relevant to answering the current question
 
 CITATION FORMAT:
 End with a simple **Quellen:** section:
@@ -499,7 +545,14 @@ End with a **Quellen:** section using the original simple format:
 - ***[Document filename]:*** [Brief topic/content description]
 - ***[Document filename]:*** [Brief topic/content description] (aus Chatverlauf)
 
-Remember: DriftMind helps users access their document knowledge. Always include exact document filenames in citations and never ask follow-up questions.";
+IMPORTANT SOURCE RULES:
+- Use ONLY real filenames (e.g. ""user-manual.pdf"", ""instructions.docx"") in citations
+- NEVER use DocumentIDs (long alphanumeric combinations) as filenames
+- If no real filenames are available, use generic descriptions like ""Document 1"", ""Document 2""
+- CRITICAL: Only cite sources that actually contain information relevant to answering the current question
+- If provided sources don't contain relevant information, do NOT cite them in the Quellen section
+
+Remember: DriftMind helps users access their document knowledge. Use only real filenames in citations, never internal document IDs. Never ask follow-up questions.";
     }
 
     private string BuildUserPromptWithContext(string query, string context)
