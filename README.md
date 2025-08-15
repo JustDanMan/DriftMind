@@ -55,7 +55,7 @@ A production-ready ASP.NET Core Web API that transforms documents into intellige
    - Create Azure AI Search service (Basic tier or higher recommended)
    - Note the endpoint and admin API key
 
-3. **Azure Storage Account** (Optional)
+3. **Azure Storage Account**
    - Create storage account for file storage
    - Create `documents` container
    - Note the connection string
