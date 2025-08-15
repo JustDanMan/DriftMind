@@ -693,54 +693,6 @@ DriftMind/
 <PackageReference Include="iText7" Version="9.2.0" />
 ```
 
-### Running Tests
-```bash
-# Unit tests
-dotnet test --filter Category=Unit
-
-# Integration tests (requires Azure services)
-dotnet test --filter Category=Integration
-
-# Performance tests
-dotnet test --filter Category=Performance
-
-# Full test suite
-dotnet test --verbosity normal
-```
-
-### API Testing with REST Client
-Use the included `DriftMind.http` file with VS Code REST Client:
-
-```http
-### Upload Document
-POST http://localhost:5175/upload
-Content-Type: multipart/form-data; boundary=boundary123
-
---boundary123
-Content-Disposition: form-data; name="file"; filename="test.pdf"
-Content-Type: application/pdf
-
-< ./test-files/sample.pdf
---boundary123--
-
-### Search with Chat History
-POST http://localhost:5175/search
-Content-Type: application/json
-
-{
-  "query": "How do I configure authentication?",
-  "includeAnswer": true,
-  "enableQueryExpansion": true,
-  "chatHistory": [
-    {
-      "role": "user",
-      "content": "What authentication methods are available?",
-      "timestamp": "2025-08-15T10:00:00Z"
-    }
-  ]
-}
-```
-
 ### POST /upload
 
 Uploads a file, extracts text, splits it into chunks, and creates embeddings.
@@ -1354,7 +1306,7 @@ curl -X POST "http://localhost:5175/search" \
 ### Common Issues
 
 #### No Search Results
-- **Check MinScoreForAnswer**: Default 0.25 may be too strict
+- **Check MinScoreForAnswer**: Default 0.15 may be too strict
 - **Verify Embeddings**: Ensure OpenAI service is configured correctly
 - **Content Quality**: Check if documents contain searchable text
 
@@ -1373,36 +1325,6 @@ curl -X POST "http://localhost:5175/search" \
 - **Verify File Types**: Only .pdf, .docx, .txt, .md supported
 - **Storage Access**: Ensure Azure Blob Storage is configured
 
-### Debug Mode
-
-```bash
-# Enable detailed logging
-export ASPNETCORE_ENVIRONMENT=Development
-
-# View detailed logs
-dotnet run --verbosity normal
-
-# Check specific service logs
-grep "SearchOrchestrationService" logs/app.log
-grep "EmbeddingService" logs/app.log
-```
-
-### API Testing
-
-```bash
-# Test the search endpoint
-curl -X POST http://localhost:5175/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "test query", "maxResults": 5}'
-
-# Expected response
-{
-  "query": "test query",
-  "success": true,
-  "answer": "Generated answer based on documents..."
-}
-```
-
 ## 📚 Additional Documentation
 
 This repository includes detailed feature documentation:
@@ -1411,7 +1333,7 @@ This repository includes detailed feature documentation:
 - **[Chat History Integration](CHAT_HISTORY_INTEGRATION.md)** - Conversational AI features  
 - **[Query Expansion Feature](QUERY_EXPANSION_FEATURE.md)** - AI-powered query enhancement
 - **[Adjacent Chunks Optimization](ADJACENT_CHUNKS_OPTIMIZATION.md)** - Context optimization strategy
-- **[PDF/Word Integration](PDF_WORD_GPT4O_INTEGRATION.md)** - Document processing details
+- **[PDF/Word Integration](PDF_WORD_GPT5_INTEGRATION.md)** - Document processing details
 
 ## 📝 License
 
@@ -1419,24 +1341,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-username/DriftMind/issues)
-- **Documentation**: [Wiki](https://github.com/your-username/DriftMind/wiki)
-- **Discussions**: [GitHub Discussions](https://github.com/your-username/DriftMind/discussions)
-
----
-
-## 📊 Performance Benchmarks
-
-| Operation | Latency (P95) | Throughput | Resource Usage |
-|-----------|---------------|------------|----------------|
-| Document Upload | < 2s | 50 files/min | 512MB RAM |
-| Search Query | < 200ms | 1000 req/min | Low CPU |
-| AI Answer Generation | < 3s | 200 req/min | 1GB RAM |
-| File Download | < 100ms | 500 req/min | Low CPU |
-
-**System Requirements:**
-- **Minimum**: 2 vCPU, 4GB RAM, 10GB storage
-- **Recommended**: 4 vCPU, 8GB RAM, 50GB storage
-- **Production**: 8+ vCPU, 16GB+ RAM, 100GB+ storage
+- **Issues**: [GitHub Issues](https://github.com/JustDanMan/DriftMind/issues)
+- **Documentation**: [Wiki](https://github.com/JustDanMan/DriftMind/wiki)
+- **Discussions**: [GitHub Discussions](https://github.com/JustDanMan/DriftMind/discussions)
 
 Built with ❤️ for intelligent document search and AI-powered knowledge management.
