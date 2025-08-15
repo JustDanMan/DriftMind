@@ -39,7 +39,7 @@ A production-ready ASP.NET Core Web API that transforms documents into intellige
 - **.NET 8.0 SDK** - Latest long-term support version
 - **Azure OpenAI Service** - With `text-embedding-ada-002` and `gpt-5-chat` deployments
 - **Azure AI Search Service** - For vector storage and semantic search
-- **Azure Blob Storage** (Optional) - For original file storage and downloads
+- **Azure Blob Storage** - For original file storage and downloads
 
 ## ⚙️ Configuration
 
