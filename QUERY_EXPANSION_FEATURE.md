@@ -2,22 +2,25 @@
 
 ## Overview
 
-The Query Expansion feature automatically enhances short, vague, or context-poor user queries to improve document search results. This two-stage approach first expands queries using AI, then performs enhanced search with the expanded terms.
+The Query Expansion feature automatically enhances short, vague, or context-poor user queries to improve document search results. This AI-powered approach expands queries intelligently to find more relevant content while maintaining the original intent.
 
 ## How It Works
 
-1. **Query Analysis**: Determines if a query needs expansion based on:
-   - Query length (configurable, default < 20 characters)
-   - Word count (configurable, default ≤ 3 words)
-   - Presence of vague language ("infos", "was ist", "tell me", etc.)
+### 1. Query Analysis
+The system determines if a query needs expansion based on:
+- **Query length**: Configurable threshold (default: < 20 characters)
+- **Word count**: Configurable threshold (default: ≤ 3 words)
+- **Vague language detection**: Identifies non-specific terms and phrases
 
-2. **AI-Powered Expansion**: Uses GPT-5 Chat to expand queries by:
-   - Adding relevant synonyms and related terms
-   - Incorporating context from chat history if available
-   - Maintaining the original query intent
-   - Generating 1-2 additional search terms
+### 2. AI-Powered Expansion
+Uses GPT-5 to expand queries by:
+- Adding relevant synonyms and related terms
+- Incorporating context from chat history if available
+- Maintaining the original query intent
+- Generating 1-3 additional search terms
 
-3. **Enhanced Search**: Performs document search using the expanded query for better results
+### 3. Enhanced Search
+Performs document search using the expanded query for better results.
 
 ## Configuration
 
@@ -36,7 +39,7 @@ Add to `appsettings.json`:
 ### Configuration Parameters
 
 - **`EnabledByDefault`**: Whether query expansion is enabled by default (can be overridden per request)
-- **`MaxQueryLengthToExpand`**: Queries shorter than this number of characters will be expanded (default: 20)
+- **`MaxQueryLengthToExpand`**: Queries shorter than this will be expanded (default: 20)
 - **`MaxQueryWordsToExpand`**: Queries with fewer or equal words will be expanded (default: 3)
 
 ## API Usage
@@ -45,9 +48,146 @@ Add to `appsettings.json`:
 
 ```json
 {
-  "query": "Infos zu XY",
+  "query": "Azure info",
   "enableQueryExpansion": true,
   "chatHistory": [
+    {
+      "role": "user",
+      "content": "I need help with Azure configuration",
+      "timestamp": "2025-08-15T10:00:00Z"
+    }
+  ]
+}
+```
+
+### SearchResponse Properties
+
+```json
+{
+  "query": "Azure info",
+  "expandedQuery": "Azure information configuration setup details documentation",
+  "results": [...],
+  "success": true
+}
+```
+
+## Examples
+
+### Simple Query Expansion
+
+**Before:**
+- Input: "PDF"
+- Search: Limited results due to vague query
+
+**After:**
+- Input: "PDF"
+- Expanded: "PDF document file format processing extraction"
+- Search: More comprehensive and relevant results
+
+### Context-Aware Expansion
+
+**Chat History:**
+```
+User: "How do I configure Azure authentication?"
+Assistant: "Azure authentication can be configured using Azure Active Directory..."
+```
+
+**Follow-up Query:**
+- Input: "What about permissions?"
+- Expanded: "Azure Active Directory permissions roles access control configuration"
+
+### Multi-Language Support
+
+**German Query:**
+- Input: "Infos zu Azure"
+- Expanded: "Informationen Details Konfiguration Setup Azure Dokumentation"
+
+**English Query:**
+- Input: "Azure infos"
+- Expanded: "Azure information configuration setup documentation details"
+
+## Language Detection
+
+The system supports expansion in multiple languages:
+
+### German Vague Terms
+- "infos", "was ist", "kannst du", "wie geht", "erzähl mir"
+
+### English Vague Terms
+- "tell me", "what about", "anything about", "info on", "help with"
+
+## Performance Considerations
+
+- **Latency**: Adds ~500-1000ms per query (AI processing time)
+- **Efficiency**: Only applied to queries that need expansion
+- **Cost**: Uses existing GPT-4 deployment (minimal additional cost)
+- **Caching**: Results can be cached for common expansion patterns
+
+## Testing Examples
+
+```bash
+# Test 1: Short vague query (should expand)
+curl -X POST "http://localhost:5175/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "PDF",
+    "enableQueryExpansion": true,
+    "maxResults": 5
+  }'
+
+# Test 2: Expansion disabled (should not expand)
+curl -X POST "http://localhost:5175/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "PDF",
+    "enableQueryExpansion": false,
+    "maxResults": 5
+  }'
+
+# Test 3: Context-aware expansion with chat history
+curl -X POST "http://localhost:5175/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How does that work?",
+    "enableQueryExpansion": true,
+    "chatHistory": [
+      {
+        "role": "user",
+        "content": "What is Azure Active Directory?",
+        "timestamp": "2025-08-15T10:00:00Z"
+      },
+      {
+        "role": "assistant",
+        "content": "Azure Active Directory is a cloud identity service...",
+        "timestamp": "2025-08-15T10:00:30Z"
+      }
+    ]
+  }'
+```
+
+## Benefits
+
+### Improved Search Quality
+- **Better Recall**: Finds more relevant documents through enhanced terms
+- **Semantic Understanding**: AI identifies intent behind vague queries
+- **Context Awareness**: Uses conversation history for relevant expansion
+
+### User Experience
+- **No Additional Effort**: Works automatically with existing queries
+- **Maintains Intent**: Preserves original query meaning
+- **Faster Results**: Users don't need to refine queries manually
+
+### System Intelligence
+- **Language Agnostic**: Works with German and English queries
+- **Adaptive**: Learns from chat context for better expansion
+- **Configurable**: Adjustable thresholds for different use cases
+
+## Integration Notes
+
+- **Backward Compatible**: Existing API calls work unchanged
+- **Optional Feature**: Can be disabled per request or globally
+- **Performance Impact**: Minimal overhead for queries that don't need expansion
+- **Logging**: Detailed logs show original vs. expanded queries for debugging
     {
       "role": "user",
       "content": "Previous conversation context",
@@ -115,7 +255,7 @@ The system detects queries that need expansion using:
 - Expansion adds ~500-1000ms per query (AI call)
 - Only applied to queries that need it (smart detection)
 - Can be disabled per request if needed
-- Uses existing GPT-5 Chat deployment (no additional costs)
+- Uses existing GPT-5 deployment (no additional costs)
 
 ## Testing
 
