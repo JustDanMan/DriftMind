@@ -1339,10 +1339,4 @@ This repository includes detailed feature documentation:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
-
-- **Issues**: [GitHub Issues](https://github.com/JustDanMan/DriftMind/issues)
-- **Documentation**: [Wiki](https://github.com/JustDanMan/DriftMind/wiki)
-- **Discussions**: [GitHub Discussions](https://github.com/JustDanMan/DriftMind/discussions)
-
 Built with ❤️ for intelligent document search and AI-powered knowledge management.
