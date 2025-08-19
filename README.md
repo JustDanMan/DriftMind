@@ -1329,11 +1329,11 @@ curl -X POST "http://localhost:5175/search" \
 
 This repository includes detailed feature documentation:
 
-- **[Azure Blob Storage Integration](AZURE_BLOB_STORAGE_INTEGRATION.md)** - File storage and retrieval
-- **[Chat History Integration](CHAT_HISTORY_INTEGRATION.md)** - Conversational AI features  
-- **[Query Expansion Feature](QUERY_EXPANSION_FEATURE.md)** - AI-powered query enhancement
-- **[Adjacent Chunks Optimization](ADJACENT_CHUNKS_OPTIMIZATION.md)** - Context optimization strategy
-- **[PDF/Word Integration](PDF_WORD_GPT5_INTEGRATION.md)** - Document processing details
+- **[Azure Blob Storage Integration](docs/AZURE_BLOB_STORAGE_INTEGRATION.md)** - File storage and retrieval
+- **[Chat History Integration](docs/CHAT_HISTORY_INTEGRATION.md)** - Conversational AI features  
+- **[Query Expansion Feature](docs/QUERY_EXPANSION_FEATURE.md)** - AI-powered query enhancement
+- **[Adjacent Chunks Optimization](docs/ADJACENT_CHUNKS_OPTIMIZATION.md)** - Context optimization strategy
+- **[PDF/Word Integration](docs/PDF_WORD_GPT5_INTEGRATION.md)** - Document processing details
 
 ## 📝 License
 
