@@ -20,6 +20,7 @@ public interface ISearchService
     Task<Dictionary<string, List<DocumentChunk>>> GetAllDocumentsAsync(int maxResults = 50, int skip = 0);
     Task<bool> DeleteDocumentAsync(string documentId);
     Task<List<DocumentChunk>> GetChunk0sForDocumentsAsync(List<string> documentIds);
+    Task<bool> DocumentExistsAsync(string documentId);
 }
 
 public class SearchService : ISearchService
@@ -67,7 +68,7 @@ public class SearchService : ISearchService
                 _logger.LogInformation("Index {IndexName} does not exist. Creating...", IndexName);
             }
 
-            // Erstelle Vector Search Profile
+            // Create Vector Search Profile
             var vectorSearchProfile = new VectorSearchProfile("vector-profile", "vector-config");
             
             var vectorSearch = new VectorSearch
@@ -88,7 +89,7 @@ public class SearchService : ISearchService
                 }
             };
 
-            // Erstelle Index
+            // Create Index
             var index = new SearchIndex(IndexName)
             {
                 Fields = new FieldBuilder().Build(typeof(DocumentChunk)),
@@ -524,6 +525,32 @@ public class SearchService : ISearchService
             
             // Fallback: Return empty list (SearchOrchestrationService will handle missing metadata)
             return new List<DocumentChunk>();
+        }
+    }
+
+    public async Task<bool> DocumentExistsAsync(string documentId)
+    {
+        try
+        {
+            // Fast existence check: look for any chunk with ChunkIndex = 0 for the document
+            var searchOptions = new SearchOptions
+            {
+                Filter = $"DocumentId eq '{documentId}' and ChunkIndex eq 0",
+                Size = 1,
+                Select = { "Id" }
+            };
+
+            var response = await _searchClient.SearchAsync<DocumentChunk>("*", searchOptions);
+            await foreach (var _ in response.Value.GetResultsAsync())
+            {
+                return true;
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking existence for document {DocumentId}", documentId);
+            throw;
         }
     }
 }

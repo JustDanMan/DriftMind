@@ -171,6 +171,15 @@ Upload and process documents into searchable chunks.
 }
 ```
 
+**Error Response (409 Conflict):**
+When a custom `documentId` already exists:
+```json
+{
+  "error": "DocumentId 'my-guide' already exists. Please choose a different id.",
+  "documentId": "my-guide"
+}
+```
+
 **Example:**
 ```bash
 curl -X POST "http://localhost:5175/upload" \
@@ -714,6 +723,15 @@ Uploads a file, extracts text, splits it into chunks, and creates embeddings.
   "fileName": "document.pdf",
   "fileType": ".pdf",
   "fileSizeBytes": 245760
+}
+```
+
+**Error Response (409 Conflict):**
+When a custom `documentId` already exists:
+```json
+{
+  "error": "DocumentId 'my-document-id' already exists. Please choose a different id.",
+  "documentId": "my-document-id"
 }
 ```
 

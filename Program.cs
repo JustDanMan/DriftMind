@@ -102,7 +102,15 @@ app.MapPost("/upload", async (IFormFile file, string? documentId, string? metada
 
     var response = await documentService.ProcessFileAsync(request);
     
-    return response.Success ? Results.Ok(response) : Results.Problem(
+    if (response.Success)
+    {
+        return Results.Ok(response);
+    }
+    if (string.Equals(response.ErrorCode, "Conflict", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Conflict(new { error = response.Message, documentId = response.DocumentId });
+    }
+    return Results.Problem(
         title: "Error processing file",
         detail: response.Message,
         statusCode: 500);

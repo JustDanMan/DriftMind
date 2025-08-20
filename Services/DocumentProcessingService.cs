@@ -39,7 +39,51 @@ public class DocumentProcessingService : IDocumentProcessingService
 
     public async Task<UploadTextResponse> ProcessFileAsync(UploadFileRequest request)
     {
-        var documentId = request.DocumentId ?? Guid.NewGuid().ToString();
+        // Determine desired documentId and ensure it's unique according to the rules
+        string documentId;
+        if (!string.IsNullOrWhiteSpace(request.DocumentId))
+        {
+            // Client-specified ID: check for existence and reject if already present
+            var exists = await _searchService.DocumentExistsAsync(request.DocumentId);
+            if (exists)
+            {
+                return new UploadTextResponse
+                {
+                    DocumentId = request.DocumentId!,
+                    Success = false,
+                    ErrorCode = "Conflict",
+                    Message = $"DocumentId '{request.DocumentId}' already exists. Please choose a different id."
+                };
+            }
+            documentId = request.DocumentId!;
+        }
+        else
+        {
+            // Auto-generate GUID and ensure uniqueness with a short retry loop (extremely low collision probability)
+            const int maxAttempts = 5;
+            int attempt = 0;
+            do
+            {
+                documentId = Guid.NewGuid().ToString();
+                attempt++;
+                var exists = await _searchService.DocumentExistsAsync(documentId);
+                if (!exists)
+                {
+                    break;
+                }
+            } while (attempt < maxAttempts);
+
+            if (attempt >= maxAttempts)
+            {
+                return new UploadTextResponse
+                {
+                    DocumentId = string.Empty,
+                    Success = false,
+                    ErrorCode = "GenerationFailed",
+                    Message = "Failed to generate a unique documentId after multiple attempts. Please try again."
+                };
+            }
+        }
         string? blobPath = null;
         string? textContentBlobPath = null;
         

@@ -18,4 +18,5 @@ public class UploadTextResponse
     public string? FileName { get; set; }
     public string? FileType { get; set; }
     public long? FileSizeBytes { get; set; }
+    public string? ErrorCode { get; set; }
 }
