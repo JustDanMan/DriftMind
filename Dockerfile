@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-azurelinux3.0-distroless AS base
+FROM mcr.microsoft.com/dotnet/aspnet:9.0-azurelinux3.0-distroless AS base
 WORKDIR /app
 EXPOSE 8081
 
