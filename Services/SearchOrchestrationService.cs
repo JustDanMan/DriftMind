@@ -12,10 +12,6 @@ public class SearchOrchestrationService : ISearchOrchestrationService
 {
     private readonly ISearchService _searchService;
     private readonly ISearchHistoryService _searchHistoryService;
-
-    // Cache for previous search results to support follow-up questions
-    private static readonly Dictionary<string, List<SearchResult>> _searchResultsCache = new();
-    private static readonly object _cacheLock = new object();
     private readonly IEmbeddingService _embeddingService;
     private readonly IChatService _chatService;
     private readonly IQueryExpansionService _queryExpansionService;
