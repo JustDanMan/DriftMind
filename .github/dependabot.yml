@@ -87,14 +87,14 @@ updates:
       - "github-actions"
     target-branch: "main"
 
-  # Docker dependencies (.NET 8 runtime only)
+  # Docker dependencies (.NET 8 only - block all .NET 9+ updates)
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "06:00"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
     assignees:
       - "JustDanMan"
     commit-message:
@@ -103,12 +103,9 @@ updates:
       - "dependencies"
       - "docker"
     target-branch: "main"
-    groups:
-      # Group .NET Docker images
-      dotnet-runtime:
-        patterns:
-          - "mcr.microsoft.com/dotnet/aspnet"
-          - "mcr.microsoft.com/dotnet/sdk"
-        update-types:
-          - "minor"
-          - "patch"
+    # Block major version updates (this will prevent .NET 9+ updates)
+    ignore:
+      - dependency-name: "mcr.microsoft.com/dotnet/aspnet"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "mcr.microsoft.com/dotnet/sdk"
+        update-types: ["version-update:semver-major"]
