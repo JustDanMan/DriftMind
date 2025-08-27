@@ -13,8 +13,10 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout code at release tag
         uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
