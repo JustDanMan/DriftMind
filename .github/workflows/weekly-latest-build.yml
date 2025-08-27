@@ -45,11 +45,19 @@ jobs:
       - name: Build and push Docker image as latest (lowercase repo name)
         run: |
           IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          # Use UTC for deterministic timestamps
+          STAMP=$(date -u +%Y%m%d%H%M)
+          SECTAG="secbuild-$STAMP"
           echo "Building image from release tag: ${{ steps.get_release.outputs.tag }}"
-          echo "Image: $IMAGE_NAME:latest"
+          echo "Image: $IMAGE_NAME:latest and $IMAGE_NAME:$SECTAG"
 
           # Always pull newer base images to pick up security fixes
-          docker build --pull -t $IMAGE_NAME:latest .
+          docker build --pull \
+            -t $IMAGE_NAME:latest \
+            -t $IMAGE_NAME:$SECTAG \
+            .
 
           echo "Pushing latest..."
           docker push $IMAGE_NAME:latest
+          echo "Pushing $SECTAG..."
+          docker push $IMAGE_NAME:$SECTAG
