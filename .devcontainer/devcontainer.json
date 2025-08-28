@@ -12,8 +12,5 @@
       ]
     }
   },
-  "mounts": [
-    "source=${localWorkspaceFolder},target=/workspaces/DriftMind,type=bind"
-  ],
   "remoteUser": "vscode"
 }
