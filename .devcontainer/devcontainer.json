@@ -1,6 +1,9 @@
 {
   "name": "DriftMind Devcontainer",
   "image": "mcr.microsoft.com/devcontainers/dotnet:8.0",
+  "containerEnv": {
+    "ASPNETCORE_ENVIRONMENT": "Development"
+  },
   "customizations": {
     "vscode": {
       "settings": {},
