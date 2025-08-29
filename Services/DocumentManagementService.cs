@@ -33,65 +33,72 @@ public class DocumentManagementService : IDocumentManagementService
             _logger.LogInformation("Retrieving documents list with parameters: MaxResults={MaxResults}, Skip={Skip}, Filter={Filter}", 
                 request.MaxResults, request.Skip, request.DocumentIdFilter);
 
-            Dictionary<string, List<DocumentChunk>> allDocuments;
-
+            // Determine target document IDs
+            List<string> targetDocumentIds;
             if (!string.IsNullOrEmpty(request.DocumentIdFilter))
             {
-                // Filter for specific document
-                var chunks = await _searchService.GetDocumentChunksAsync(request.DocumentIdFilter);
-                allDocuments = new Dictionary<string, List<DocumentChunk>>
-                {
-                    { request.DocumentIdFilter, chunks }
-                };
+                targetDocumentIds = new List<string> { request.DocumentIdFilter };
             }
             else
             {
-                // Get all documents with pagination
-                allDocuments = await _searchService.GetAllDocumentsAsync(request.MaxResults, request.Skip);
+                var allIds = await _searchService.GetAllDocumentIdsAsync();
+                targetDocumentIds = allIds.Skip(Math.Max(0, request.Skip)).Take(Math.Min(request.MaxResults, 100)).ToList();
             }
 
-            var documentSummaries = new List<DocumentSummary>();
-
-            foreach (var (documentId, chunks) in allDocuments)
+            if (!targetDocumentIds.Any())
             {
-                if (!chunks.Any()) continue;
+                return new DocumentListResponse
+                {
+                    Documents = new List<DocumentSummary>(),
+                    TotalDocuments = 0,
+                    ReturnedDocuments = 0,
+                    Success = true,
+                    Message = "Retrieved 0 documents successfully."
+                };
+            }
 
-                // Sort chunks by index to get consistent ordering
-                var sortedChunks = chunks.OrderBy(c => c.ChunkIndex).ToList();
-                var firstChunk = sortedChunks.First();
-                var lastChunk = sortedChunks.Last();
+            // 1) Bulk load metadata from chunk 0
+            var chunk0s = await _searchService.GetChunk0sForDocumentsAsync(targetDocumentIds);
+            var metaByDoc = chunk0s.ToDictionary(c => c.DocumentId, c => c);
 
-                // Get document metadata from first chunk (ChunkIndex = 0)
-                // All metadata is stored only in the first chunk to avoid redundancy
-                var fileName = firstChunk.OriginalFileName;
-                var fileType = firstChunk.ContentType;
-                var fileSizeBytes = firstChunk.FileSizeBytes;
+            // 2) For each document, minimal queries for count/lastUpdated/sample
+            var summaries = new List<DocumentSummary>(targetDocumentIds.Count);
 
-                // Get sample content from first few chunks
-                var sampleContent = sortedChunks
-                    .Take(3)
+            // Potential simple parallelization: run tasks per doc
+            var tasks = targetDocumentIds.Select(async docId =>
+            {
+                metaByDoc.TryGetValue(docId, out var meta);
+
+                var countTask = _searchService.GetChunkCountAsync(docId);
+                var lastUpdatedTask = _searchService.GetLastUpdatedAsync(docId);
+                var topChunksTask = _searchService.GetTopChunksAsync(docId, 3);
+
+                await Task.WhenAll(countTask, lastUpdatedTask, topChunksTask);
+
+                var sample = topChunksTask.Result
+                    .OrderBy(c => c.ChunkIndex)
                     .Select(c => TruncateContent(c.Content, 150))
-                    .Where(content => !string.IsNullOrWhiteSpace(content))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
                     .ToList();
 
-                var documentSummary = new DocumentSummary
+                var createdAt = meta?.CreatedAt ?? DateTimeOffset.MinValue;
+                var summary = new DocumentSummary
                 {
-                    DocumentId = documentId,
-                    ChunkCount = chunks.Count,
-                    FileName = fileName,
-                    FileType = fileType,
-                    FileSizeBytes = fileSizeBytes,
-                    Metadata = firstChunk.Metadata,
-                    CreatedAt = firstChunk.CreatedAt,
-                    LastUpdated = lastChunk.CreatedAt,
-                    SampleContent = sampleContent
+                    DocumentId = docId,
+                    ChunkCount = countTask.Result,
+                    FileName = meta?.OriginalFileName,
+                    FileType = meta?.ContentType,
+                    FileSizeBytes = meta?.FileSizeBytes,
+                    Metadata = meta?.Metadata,
+                    CreatedAt = createdAt,
+                    LastUpdated = lastUpdatedTask.Result ?? createdAt,
+                    SampleContent = sample
                 };
 
-                documentSummaries.Add(documentSummary);
-            }
+                return summary;
+            }).ToList();
 
-            // Sort by creation date (newest first)
-            documentSummaries = documentSummaries
+            var documentSummaries = (await Task.WhenAll(tasks))
                 .OrderByDescending(d => d.CreatedAt)
                 .ToList();
 

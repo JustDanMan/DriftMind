@@ -21,6 +21,10 @@ public interface ISearchService
     Task<bool> DeleteDocumentAsync(string documentId);
     Task<List<DocumentChunk>> GetChunk0sForDocumentsAsync(List<string> documentIds);
     Task<bool> DocumentExistsAsync(string documentId);
+    // Efficient, minimal queries for overview
+    Task<int> GetChunkCountAsync(string documentId);
+    Task<DateTimeOffset?> GetLastUpdatedAsync(string documentId);
+    Task<List<DocumentChunk>> GetTopChunksAsync(string documentId, int topN = 3);
 }
 
 public class SearchService : ISearchService
@@ -550,6 +554,83 @@ public class SearchService : ISearchService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error checking existence for document {DocumentId}", documentId);
+            throw;
+        }
+    }
+
+    public async Task<int> GetChunkCountAsync(string documentId)
+    {
+        try
+        {
+            var options = new SearchOptions
+            {
+                Filter = $"DocumentId eq '{documentId}'",
+                IncludeTotalCount = true,
+                Size = 1,
+                Select = { "Id" }
+            };
+
+            var response = await _searchClient.SearchAsync<DocumentChunk>("*", options);
+            var total = response.Value.TotalCount ?? 0;
+            return (int)total;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting chunk count for document {DocumentId}", documentId);
+            throw;
+        }
+    }
+
+    public async Task<DateTimeOffset?> GetLastUpdatedAsync(string documentId)
+    {
+        try
+        {
+            var options = new SearchOptions
+            {
+                Filter = $"DocumentId eq '{documentId}'",
+                OrderBy = { "CreatedAt desc" },
+                Size = 1,
+                Select = { "CreatedAt" }
+            };
+
+            var response = await _searchClient.SearchAsync<DocumentChunk>("*", options);
+            await foreach (var r in response.Value.GetResultsAsync())
+            {
+                return r.Document.CreatedAt;
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting last updated for document {DocumentId}", documentId);
+            throw;
+        }
+    }
+
+    public async Task<List<DocumentChunk>> GetTopChunksAsync(string documentId, int topN = 3)
+    {
+        try
+        {
+            var maxIndex = Math.Max(0, topN - 1);
+            var options = new SearchOptions
+            {
+                Filter = $"DocumentId eq '{documentId}' and ChunkIndex ge 0 and ChunkIndex le {maxIndex}",
+                OrderBy = { "ChunkIndex asc" },
+                Size = topN,
+                Select = { "Content", "ChunkIndex" }
+            };
+
+            var response = await _searchClient.SearchAsync<DocumentChunk>("*", options);
+            var chunks = new List<DocumentChunk>();
+            await foreach (var r in response.Value.GetResultsAsync())
+            {
+                chunks.Add(r.Document);
+            }
+            return chunks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting top chunks for document {DocumentId}", documentId);
             throw;
         }
     }
