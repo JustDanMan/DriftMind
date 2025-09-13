@@ -1,5 +1,4 @@
-using iText.Kernel.Pdf;
-using iText.Kernel.Pdf.Canvas.Parser;
+using UglyToad.PdfPig;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using System.Text;
@@ -100,71 +99,83 @@ public class FileProcessingService : IFileProcessingService
 
             _logger.LogDebug("PDF file loaded into memory, size: {Size} bytes", memoryStream.Length);
 
-            using var pdfReader = new PdfReader(memoryStream);
-            using var pdfDocument = new PdfDocument(pdfReader);
+            using var document = PdfDocument.Open(memoryStream);
 
             var text = new StringBuilder();
-            var pageCount = pdfDocument.GetNumberOfPages();
-            
+            var pageCount = document.NumberOfPages;
+
             _logger.LogDebug("PDF has {PageCount} pages", pageCount);
 
-            for (int i = 1; i <= pageCount; i++)
+            int pageNumber = 0;
+            foreach (var page in document.GetPages())
             {
+                pageNumber++;
                 try
                 {
-                    var page = pdfDocument.GetPage(i);
-                    var pageText = PdfTextExtractor.GetTextFromPage(page);
-                    
+                    var pageText = page.Text;
                     if (!string.IsNullOrWhiteSpace(pageText))
                     {
                         text.AppendLine(pageText);
-                        _logger.LogDebug("Extracted {Length} characters from page {PageNumber}", pageText.Length, i);
+                        _logger.LogDebug("Extracted {Length} characters from page {PageNumber}", pageText.Length, pageNumber);
                     }
                     else
                     {
-                        _logger.LogDebug("No text found on page {PageNumber}", i);
+                        _logger.LogDebug("No text found on page {PageNumber}", pageNumber);
                     }
                 }
                 catch (Exception pageEx)
                 {
-                    _logger.LogWarning(pageEx, "Failed to extract text from page {PageNumber}", i);
-                    // Continue with next page
+                    _logger.LogWarning(pageEx, "Failed to extract text from page {PageNumber}", pageNumber);
                 }
             }
 
             var extractedText = text.ToString().Trim();
-            
+
             if (string.IsNullOrWhiteSpace(extractedText))
             {
                 _logger.LogWarning("No text could be extracted from any page of the PDF file");
-                
-                // Try to extract PDF metadata as fallback
+
                 try
                 {
-                    var info = pdfDocument.GetDocumentInfo();
+                    var info = document.Information;
                     var metadataText = new StringBuilder();
-                    
-                    if (!string.IsNullOrWhiteSpace(info.GetTitle()))
+
+                    if (!string.IsNullOrWhiteSpace(info?.Title))
                     {
-                        metadataText.AppendLine($"Title: {info.GetTitle()}");
+                        metadataText.AppendLine($"Title: {info.Title}");
                     }
-                    if (!string.IsNullOrWhiteSpace(info.GetAuthor()))
+                    if (!string.IsNullOrWhiteSpace(info?.Author))
                     {
-                        metadataText.AppendLine($"Author: {info.GetAuthor()}");
+                        metadataText.AppendLine($"Author: {info.Author}");
                     }
-                    if (!string.IsNullOrWhiteSpace(info.GetSubject()))
+                    if (!string.IsNullOrWhiteSpace(info?.Subject))
                     {
-                        metadataText.AppendLine($"Subject: {info.GetSubject()}");
+                        metadataText.AppendLine($"Subject: {info.Subject}");
                     }
-                    if (!string.IsNullOrWhiteSpace(info.GetKeywords()))
+                    if (!string.IsNullOrWhiteSpace(info?.Keywords))
                     {
-                        metadataText.AppendLine($"Keywords: {info.GetKeywords()}");
+                        metadataText.AppendLine($"Keywords: {info.Keywords}");
                     }
-                    
+                    if (!string.IsNullOrWhiteSpace(info?.Creator))
+                    {
+                        metadataText.AppendLine($"Creator: {info.Creator}");
+                    }
+                    if (!string.IsNullOrWhiteSpace(info?.Producer))
+                    {
+                        metadataText.AppendLine($"Producer: {info.Producer}");
+                    }
+                    if (info?.CreationDate != null)
+                    {
+                        metadataText.AppendLine($"Created: {info.CreationDate}");
+                    }
+                    if (info?.ModifiedDate != null)
+                    {
+                        metadataText.AppendLine($"Modified: {info.ModifiedDate}");
+                    }
+
                     metadataText.AppendLine($"Pages: {pageCount}");
-                    metadataText.AppendLine($"PDF Version: {pdfDocument.GetPdfVersion()}");
                     metadataText.AppendLine("Note: This PDF contains no extractable text. It may consist primarily of images or scanned pages.");
-                    
+
                     var metadataString = metadataText.ToString().Trim();
                     if (!string.IsNullOrWhiteSpace(metadataString))
                     {
@@ -176,12 +187,11 @@ public class FileProcessingService : IFileProcessingService
                 {
                     _logger.LogWarning(metadataEx, "Failed to extract PDF metadata");
                 }
-                
+
                 return (false, string.Empty, "This PDF contains no extractable text. It may consist primarily of images or scanned pages. To process such PDFs, OCR (Optical Character Recognition) functionality would be required, which is not currently implemented.");
             }
 
-            _logger.LogInformation("Successfully extracted {Length} characters from PDF file with {PageCount} pages", 
-                extractedText.Length, pageCount);
+            _logger.LogInformation("Successfully extracted {Length} characters from PDF file with {PageCount} pages", extractedText.Length, pageCount);
             return (true, extractedText, string.Empty);
         }
         catch (Exception ex)

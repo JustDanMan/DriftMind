@@ -34,12 +34,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # Group document processing libraries (OpenXml, iText7)
+  # Group document processing libraries (OpenXml, PdfPig)
       document-processing:
         patterns:
           - "DocumentFormat.OpenXml"
-          - "iText7"
-          - "itext*"
+          - "PdfPig"
         update-types:
           - "minor"
           - "patch"

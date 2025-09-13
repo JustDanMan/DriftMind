@@ -91,7 +91,7 @@ curl -X POST "http://localhost:5175/upload" \
 ```
 
 ### 2. Processing Pipeline
-1. **Text Extraction**: iText7 for PDFs, DocumentFormat.OpenXml for DOCX
+1. **Text Extraction**: PdfPig for PDFs, DocumentFormat.OpenXml for DOCX
 2. **Original Storage**: File stored in Azure Blob Storage with metadata
 3. **Text Backup**: Extracted content saved as separate blob for reference
 4. **Intelligent Chunking**: Text split into overlapping segments
@@ -236,7 +236,7 @@ rotation, proper storage, and backup procedures...
 ## File Type Support
 
 ### PDF Documents
-- **Text Extraction**: Advanced text extraction using iText7
+- **Text Extraction**: Advanced text extraction using PdfPig
 - **Layout Preservation**: Maintains document structure and formatting context
 - **Metadata Support**: Document properties, creation dates, author information
 - **Error Handling**: Graceful handling of corrupted or password-protected files
