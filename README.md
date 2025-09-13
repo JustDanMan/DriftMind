@@ -342,6 +342,22 @@ Additional detailed documentation:
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
+## 📦 Third-Party Packages
+
+The following third-party packages are used in this project. Their respective licenses apply to those components. The overall project license remains MIT as noted above.
+
+| Package | Version | License | Copyright |
+|---------|---------|---------|-----------|
+| Azure.AI.OpenAI | 2.1.0 | MIT | © Microsoft Corporation |
+| Azure.Search.Documents | 11.6.1 | MIT | © Microsoft Corporation |
+| Azure.Storage.Blobs | 12.25.0 | MIT | © Microsoft Corporation |
+| DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
+| PdfPig | 0.1.11 | MIT | © UglyToad / PdfPig Contributors |
+| Microsoft.AspNetCore.OpenApi | 8.0.20 | MIT | © Microsoft Corporation |
+| Swashbuckle.AspNetCore | 9.0.4 | MIT | © Swashbuckle Contributors |
+
+Full license texts: see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
+
 ---
 
 Built with ❤️ for intelligent document search and AI-powered knowledge management.
