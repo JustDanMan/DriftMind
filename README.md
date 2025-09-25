@@ -4,6 +4,8 @@
 
 Transform your documents into intelligent, searchable knowledge. Upload files, ask questions, and get contextual answers with source attribution.
 
+[![Frontend — DriftMindWeb](https://img.shields.io/badge/Frontend-DriftMindWeb-informational?style=flat-square&logo=github&logoColor=white)](https://github.com/JustDanMan/DriftMindWeb)
+
 ## ✨ Features
 
 - **🔍 Semantic Search**: Vector-based document discovery with Azure AI Search
