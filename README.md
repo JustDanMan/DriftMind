@@ -352,11 +352,11 @@ The following third-party packages are used in this project. Their respective li
 |---------|---------|---------|-----------|
 | Azure.AI.OpenAI | 2.1.0 | MIT | © Microsoft Corporation |
 | Azure.Search.Documents | 11.6.1 | MIT | © Microsoft Corporation |
-| Azure.Storage.Blobs | 12.25.0 | MIT | © Microsoft Corporation |
+| Azure.Storage.Blobs | 12.25.1 | MIT | © Microsoft Corporation |
 | DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
 | PdfPig | 0.1.11 | Apache-2.0 | © UglyToad / PdfPig Contributors |
 | Microsoft.AspNetCore.OpenApi | 8.0.20 | MIT | © Microsoft Corporation |
-| Swashbuckle.AspNetCore | 9.0.4 | MIT | © Swashbuckle Contributors |
+| Swashbuckle.AspNetCore | 9.0.6 | MIT | © Swashbuckle Contributors |
 
 Full license texts: see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
 

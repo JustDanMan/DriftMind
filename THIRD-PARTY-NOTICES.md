@@ -72,7 +72,7 @@ SOFTWARE.
 
 ---
 
-### Azure.Storage.Blobs (12.25.0)
+### Azure.Storage.Blobs (12.25.1)
 License: MIT
 
 Copyright © Microsoft Corporation
@@ -336,7 +336,7 @@ SOFTWARE.
 
 ---
 
-### Swashbuckle.AspNetCore (9.0.4)
+### Swashbuckle.AspNetCore (9.0.6)
 License: MIT
 
 Copyright © Richard Morris
