@@ -45,7 +45,7 @@ SOFTWARE.
 
 ---
 
-### Azure.Search.Documents (11.6.1)
+### Azure.Search.Documents (11.7.0)
 License: MIT
 
 Copyright © Microsoft Corporation
@@ -72,7 +72,7 @@ SOFTWARE.
 
 ---
 
-### Azure.Storage.Blobs (12.25.1)
+### Azure.Storage.Blobs (12.26.0)
 License: MIT
 
 Copyright © Microsoft Corporation
