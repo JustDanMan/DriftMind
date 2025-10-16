@@ -772,47 +772,6 @@ public class SearchOrchestrationService : ISearchOrchestrationService
     }
 
     /// <summary>
-    /// Extracts filenames from chat history to find previous context
-    /// </summary>
-    private List<string> ExtractDocumentIdsFromChatHistory(List<ChatMessage> chatHistory)
-    {
-        var filenames = new HashSet<string>();
-
-        // Look for the most recent assistant response that contains sources
-        for (int i = chatHistory.Count - 1; i >= 0; i--)
-        {
-            var message = chatHistory[i];
-            if (message.Role == "assistant" && !string.IsNullOrEmpty(message.Content))
-            {
-                // Look for source references in format: **Quelle: [filename]** or similar
-                var sourceMatches = System.Text.RegularExpressions.Regex.Matches(
-                    message.Content,
-                    @"\*\*Quelle:\s*([^\*]+)\*\*|\*\*Source:\s*([^\*]+)\*\*",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                foreach (System.Text.RegularExpressions.Match match in sourceMatches)
-                {
-                    var filename = match.Groups[1].Success ? match.Groups[1].Value.Trim() : match.Groups[2].Value.Trim();
-                    if (!string.IsNullOrEmpty(filename))
-                    {
-                        filenames.Add(filename);
-                        _logger.LogInformation("Found filename in chat history: '{Filename}'", filename);
-                    }
-                }
-
-                // If we found sources in this response, use them
-                if (filenames.Any())
-                {
-                    _logger.LogInformation("Found {Count} source references in recent assistant response", filenames.Count);
-                    break;
-                }
-            }
-        }
-
-        return filenames.ToList();
-    }
-
-    /// <summary>
     /// Searches within specific documents identified from previous responses
     /// </summary>
     private async Task<SearchResponse> SearchWithinSpecificDocuments(SearchRequest request, List<string> previousFilenames)
