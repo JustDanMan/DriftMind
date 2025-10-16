@@ -9,7 +9,7 @@ namespace DriftMind.Services;
 public interface ISearchHistoryService
 {
     Task<List<SearchResult>?> ExtractPreviousSearchResultsFromHistory(List<ChatMessage> chatHistory);
-    Task<List<SearchResult>> TryEnhancedSearchWithHistoryAsync(
+    Task<List<SearchResult>> RunEnhancedSearchAsync(
         SearchRequest request, 
         string searchQuery, 
         IReadOnlyList<float> queryEmbedding, 
@@ -98,13 +98,13 @@ public class SearchHistoryService : ISearchHistoryService
     /// <summary>
     /// Enhanced search that incorporates chat history context for better results
     /// </summary>
-    public async Task<List<SearchResult>> TryEnhancedSearchWithHistoryAsync(
+    public async Task<List<SearchResult>> RunEnhancedSearchAsync(
         SearchRequest request, 
         string searchQuery, 
         IReadOnlyList<float> queryEmbedding, 
         List<SearchResult>? currentResults = null)
     {
-        _logger.LogInformation("🔄 ENHANCED SEARCH: Trying enhanced search with history context for query: '{Query}'", request.Query);
+        _logger.LogInformation("🔄 ENHANCED SEARCH: Running enhanced search pipeline for query: '{Query}'", request.Query);
 
         try
         {
