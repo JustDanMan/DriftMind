@@ -8,14 +8,12 @@ namespace DriftMind.Services;
 public interface IQueryExpansionService
 {
     Task<string> ExpandQueryAsync(string originalQuery, List<DTO.ChatMessage>? chatHistory = null);
-    bool ShouldExpandQuery(string query);
 }
 
 public class QueryExpansionService : IQueryExpansionService
 {
     private readonly ChatClient _chatClient;
     private readonly ILogger<QueryExpansionService> _logger;
-    private readonly IConfiguration _configuration;
 
     public QueryExpansionService(
         AzureOpenAIClient azureOpenAIClient,
@@ -24,45 +22,21 @@ public class QueryExpansionService : IQueryExpansionService
     {
         var chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-5-chat";
         _chatClient = azureOpenAIClient.GetChatClient(chatModel);
-        _configuration = configuration;
         _logger = logger;
-    }
-
-    public bool ShouldExpandQuery(string query)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-            return false;
-
-        var trimmedQuery = query.Trim();
-        
-        // Get configuration values
-        var maxQueryLength = _configuration.GetValue<int>("QueryExpansion:MaxQueryLengthToExpand", 20);
-        var maxQueryWords = _configuration.GetValue<int>("QueryExpansion:MaxQueryWordsToExpand", 3);
-        
-        // Expand if query is short and lacks context
-        var shouldExpand = trimmedQuery.Length < maxQueryLength || // Short queries
-                          trimmedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= maxQueryWords || // Few words
-                          ContainsVagueLanguage(trimmedQuery);
-
-        _logger.LogDebug("Query expansion check for '{Query}': {ShouldExpand} (Length: {Length}, Words: {WordCount})", 
-            query, shouldExpand, trimmedQuery.Length, trimmedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
-
-        return shouldExpand;
     }
 
     public async Task<string> ExpandQueryAsync(string originalQuery, List<DTO.ChatMessage>? chatHistory = null)
     {
+        if (string.IsNullOrWhiteSpace(originalQuery))
+        {
+            _logger.LogDebug("Skipping query expansion because the original query is empty or whitespace");
+            return originalQuery;
+        }
+
         try
         {
-            // For follow-up questions with chat history, always try expansion to add context
             bool isFollowUp = IsFollowUpQuestion(originalQuery);
             bool hasHistory = chatHistory?.Any() == true;
-            
-            if (!ShouldExpandQuery(originalQuery) && !(isFollowUp && hasHistory))
-            {
-                _logger.LogDebug("Query '{Query}' does not need expansion", originalQuery);
-                return originalQuery;
-            }
 
             _logger.LogInformation("Expanding query: '{OriginalQuery}' (IsFollowUp: {IsFollowUp}, HasHistory: {HasHistory})", 
                 originalQuery, isFollowUp, hasHistory);
@@ -95,20 +69,6 @@ public class QueryExpansionService : IQueryExpansionService
             _logger.LogError(ex, "Error expanding query '{OriginalQuery}', using original", originalQuery);
             return originalQuery;
         }
-    }
-
-    private bool ContainsVagueLanguage(string query)
-    {
-        var vaguePhrases = new[]
-        {
-            "infos", "info", "informationen", "details", "sachen", "zeug", "dinge",
-            "was", "wie", "wo", "wann", "warum", "welche", "was ist", "wie ist",
-            "kannst du", "hast du", "weißt du", "gibt es", "findest du",
-            "tell me", "show me", "what about", "anything about", "stuff about"
-        };
-
-        var lowerQuery = query.ToLowerInvariant();
-        return vaguePhrases.Any(phrase => lowerQuery.Contains(phrase));
     }
 
     private string BuildExpansionSystemPrompt()

@@ -6,11 +6,8 @@ The Query Expansion feature automatically enhances short, vague, or context-poor
 
 ## How It Works
 
-### 1. Query Analysis
-The system determines if a query needs expansion based on:
-- **Query length**: Configurable threshold (default: < 20 characters)
-- **Word count**: Configurable threshold (default: ≤ 3 words)
-- **Vague language detection**: Identifies non-specific terms and phrases
+### 1. Expansion Trigger
+If query expansion is enabled (globally via configuration or directly on the request), the service always expands the incoming query before searching. Empty queries are skipped, and chat history is used to provide additional context when available.
 
 ### 2. AI-Powered Expansion
 Uses GPT-5 to expand queries by:
@@ -29,9 +26,7 @@ Add to `appsettings.json`:
 ```json
 {
   "QueryExpansion": {
-    "EnabledByDefault": true,
-    "MaxQueryLengthToExpand": 20,
-    "MaxQueryWordsToExpand": 3
+    "EnabledByDefault": true
   }
 }
 ```
@@ -39,8 +34,6 @@ Add to `appsettings.json`:
 ### Configuration Parameters
 
 - **`EnabledByDefault`**: Whether query expansion is enabled by default (can be overridden per request)
-- **`MaxQueryLengthToExpand`**: Queries shorter than this will be expanded (default: 20)
-- **`MaxQueryWordsToExpand`**: Queries with fewer or equal words will be expanded (default: 3)
 
 ## API Usage
 
@@ -119,8 +112,8 @@ The system supports expansion in multiple languages:
 ## Performance Considerations
 
 - **Latency**: Adds ~500-1000ms per query (AI processing time)
-- **Efficiency**: Only applied to queries that need expansion
-- **Cost**: Uses existing GPT-4 deployment (minimal additional cost)
+- **Efficiency**: Enabled queries are always expanded; disable per request if not needed
+- **Cost**: Uses existing GPT-5 deployment (minimal additional cost)
 - **Caching**: Results can be cached for common expansion patterns
 
 ## Testing Examples
@@ -180,13 +173,13 @@ curl -X POST "http://localhost:5175/search" \
 ### System Intelligence
 - **Language Agnostic**: Works with German and English queries
 - **Adaptive**: Learns from chat context for better expansion
-- **Configurable**: Adjustable thresholds for different use cases
+- **Configurable**: Toggle globally or per request to fit different workflows
 
 ## Integration Notes
 
 - **Backward Compatible**: Existing API calls work unchanged
 - **Optional Feature**: Can be disabled per request or globally
-- **Performance Impact**: Minimal overhead for queries that don't need expansion
+- **Performance Impact**: Minimal additional overhead from the expansion call; disable when not required
 - **Logging**: Detailed logs show original vs. expanded queries for debugging
     {
       "role": "user",
@@ -240,11 +233,8 @@ When chat history is provided, the expansion considers previous conversation con
 - `SearchOrchestrationService`: Integrated with query expansion
 - `SearchRequest/SearchResponse`: Extended DTOs with expansion support
 
-### Detection Logic
-The system detects queries that need expansion using:
-- Length-based rules (configurable)
-- Word count analysis (configurable) 
-- Vague language detection (predefined phrases)
+### Expansion Logic
+All non-empty queries are expanded whenever the feature is enabled, leveraging recent chat history (up to five messages) to add contextual keywords without altering the user's intent.
 
 ### Language Support
 - **German**: "infos", "was ist", "kannst du", etc.
