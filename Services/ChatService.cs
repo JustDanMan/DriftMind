@@ -290,55 +290,36 @@ public class ChatService : IChatService
         var processedChunks = new HashSet<string>(); // Track processed chunks to avoid duplicates
         int sourceCounter = 1;
 
-        foreach (var documentGroup in resultsByDocument)
+        var documentContexts = resultsByDocument
+            .Select(group => (
+                DocumentId: group.Key,
+                Results: group.ToList(),
+                ChunkIndices: group.Select(r => r.ChunkIndex).Distinct().OrderBy(x => x).ToList()
+            ))
+            .ToList();
+
+        var preloadTasks = documentContexts
+            .Select(context => PreloadChunksForDocumentAsync(context.DocumentId, context.ChunkIndices, adjacentChunksToInclude))
+            .ToList();
+
+        var chunkDictionaries = await Task.WhenAll(preloadTasks);
+
+        for (var docIndex = 0; docIndex < documentContexts.Count; docIndex++)
         {
-            var documentId = documentGroup.Key;
-            var documentsResults = documentGroup.ToList();
+            var context = documentContexts[docIndex];
+            var chunkDictionary = chunkDictionaries[docIndex];
+            var documentId = context.DocumentId;
+            var documentsResults = context.Results;
 
             _logger.LogDebug("Processing document {DocumentId} with {ResultCount} relevant chunks", 
                 documentId, documentsResults.Count);
 
-            // Get all unique chunk indices for this document
-            var chunkIndices = documentsResults.Select(r => r.ChunkIndex).Distinct().OrderBy(x => x).ToList();
-
-            if (!chunkIndices.Any())
+            if (!context.ChunkIndices.Any())
             {
                 continue;
             }
 
-            // Preload all required chunks in as few range queries as possible
-            var mergedRanges = MergeChunkRanges(chunkIndices, adjacentChunksToInclude);
-            Dictionary<int, DocumentChunk> chunkDictionary;
-
-            if (mergedRanges.Any())
-            {
-                var rangeTasks = mergedRanges
-                    .Select(range => _searchService.GetChunksInRangeAsync(documentId, range.Start, range.End))
-                    .ToList();
-
-                try
-                {
-                    var rangeResults = await Task.WhenAll(rangeTasks);
-                    chunkDictionary = rangeResults
-                        .SelectMany(r => r)
-                        .GroupBy(chunk => chunk.ChunkIndex)
-                        .ToDictionary(g => g.Key, g => g.First());
-
-                    _logger.LogDebug("Preloaded {ChunkCount} chunks across {RangeCount} ranges for document {DocumentId}",
-                        chunkDictionary.Count, mergedRanges.Count, documentId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error preloading chunk ranges for DocumentId: {DocumentId}", documentId);
-                    chunkDictionary = new Dictionary<int, DocumentChunk>();
-                }
-            }
-            else
-            {
-                chunkDictionary = new Dictionary<int, DocumentChunk>();
-            }
-
-            foreach (var chunkIndex in chunkIndices)
+            foreach (var chunkIndex in context.ChunkIndices)
             {
                 var originalResult = documentsResults.FirstOrDefault(r => r.ChunkIndex == chunkIndex);
                 if (originalResult == null)
@@ -478,6 +459,44 @@ public class ChatService : IChatService
         }
 
         return merged;
+    }
+
+    private async Task<Dictionary<int, DocumentChunk>> PreloadChunksForDocumentAsync(string documentId, List<int> chunkIndices, int adjacentCount)
+    {
+        if (!chunkIndices.Any())
+        {
+            return new Dictionary<int, DocumentChunk>();
+        }
+
+        var mergedRanges = MergeChunkRanges(chunkIndices, adjacentCount);
+
+        if (!mergedRanges.Any())
+        {
+            return new Dictionary<int, DocumentChunk>();
+        }
+
+        var rangeTasks = mergedRanges
+            .Select(range => _searchService.GetChunksInRangeAsync(documentId, range.Start, range.End))
+            .ToList();
+
+        try
+        {
+            var rangeResults = await Task.WhenAll(rangeTasks);
+            var dictionary = rangeResults
+                .SelectMany(r => r)
+                .GroupBy(chunk => chunk.ChunkIndex)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            _logger.LogDebug("Preloaded {ChunkCount} chunks across {RangeCount} ranges for document {DocumentId}",
+                dictionary.Count, mergedRanges.Count, documentId);
+
+            return dictionary;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error preloading chunk ranges for DocumentId: {DocumentId}", documentId);
+            return new Dictionary<int, DocumentChunk>();
+        }
     }
 
     private string BuildEnhancedSystemPrompt()
