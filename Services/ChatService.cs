@@ -577,15 +577,15 @@ End with a **Quellen:** section listing the sources used with their exact docume
 8. Do NOT ask follow-up questions at the end of your response
 9. Do NOT offer to provide more information, summaries, or additional help";
 
-    var citationAttribution = @"CITATION AND SOURCE ATTRIBUTION:
+     var citationAttribution = @"CITATION AND SOURCE ATTRIBUTION:
 CRITICAL: Maintain exact correspondence between information and sources!
 
 1. Each source is clearly marked with === SOURCE X === boundaries
 2. NEVER mix information from different sources in citations
 3. For current document sources:
-   - Use format: ***[Document filename]:*** [Brief description of content]
-4. For history-enhanced sources (marked with �):
-   - Use format: ***[Document filename]:*** [Brief description of content] (aus Chatverlauf)
+    - Use format: ***[Document filename]:*** [Brief description of content]
+4. For history-enhanced sources (explicitly marked in the context):
+    - Use format: ***[Document filename]:*** [Brief description of content] (aus Chatverlauf)
 5. NEVER use complex phrases like ""Aus vorheriger Diskussion relevantes Dokument"" or ""Ergänzend zu den Dokumenteninhalten""
 6. ONLY cite information that is actually present in the specific document you reference";
 
@@ -602,7 +602,7 @@ End with a simple **Quellen:** section:
 - ***Document-Name.pdf:*** [Topic/Content description]
 - ***Another-Document.pdf:*** [Topic/Content description] (aus Chatverlauf)";
 
-    var formattingRequirementsWithHistory = BaseFormattingRequirements + "\n- Reference previous conversations naturally with phrases like \"Wie bereits erwähnt...\" or \"Aufbauend auf der vorherigen Diskussion...\"";
+    var formattingRequirementsWithHistory = BaseFormattingRequirements + "\n- Reference previous conversations naturally using German phrases such as \"Wie bereits erwähnt...\" or \"Aufbauend auf der vorherigen Diskussion...\"";
 
     var citationFormatReminder = @"CITATION FORMAT:
 End with a **Quellen:** section using the original simple format:
@@ -657,7 +657,7 @@ End with a **Quellen:** section using the original simple format:
 8. Do NOT offer to provide more information, summaries, or additional help
 9. When referencing previous document information, always mention the exact document filename if available in chat history";
 
-        var formattingRequirements = BaseFormattingRequirements + "\n- Reference previous conversations with phrases like \"Wie bereits aus den Dokumenten erwähnt...\" or \"Basierend auf den zuvor gefundenen Informationen...\"";
+    var formattingRequirements = BaseFormattingRequirements + "\n- Reference previous conversations using German phrases such as \"Wie bereits aus den Dokumenten erwähnt...\" or \"Basierend auf den zuvor gefundenen Informationen...\"";
 
         var citationFormat = @"CITATION FORMAT:
 End with a **Quellen:** section when referencing previous document information:
@@ -699,27 +699,27 @@ End with a **Quellen:** section when referencing previous document information:
         
         if (hasHistoryBasedResults)
         {
-            prompt.AppendLine("KRITISCHER HINWEIS: Ein Teil der folgenden Informationen stammt aus Dokumenten, die in der aktuellen Unterhaltung bereits als relevant identifiziert wurden (History-Enhanced Search).");
+            prompt.AppendLine("CRITICAL NOTE: Some of the following information comes from documents that were already identified as relevant earlier in this conversation (history-enhanced search).");
             prompt.AppendLine();
         }
-        
+
         prompt.AppendLine(context);
-        
+
         prompt.AppendLine();
-        prompt.AppendLine("WICHTIGE QUELLENATTRIBUTION REGELN:");
-        prompt.AppendLine("1. Verwenden Sie NUR Informationen aus den bereitgestellten Quellen");
-        prompt.AppendLine("2. Jede Quelle ist klar mit === SOURCE X === markiert");
-        prompt.AppendLine("3. Für HISTORY-ENHANCED SOURCES: Fügen Sie '(aus Chatverlauf)' am Ende hinzu");
-        prompt.AppendLine("4. Für CURRENT SEARCH RESULTS: Normale Quellenangabe ohne Zusatz");
-        prompt.AppendLine("5. Verwenden Sie nur den exakten Dateinamen aus '📄 DOCUMENT FILENAME:'");
-        prompt.AppendLine("6. NIEMALS Informationen aus einem Dokument einem anderen Dokument zuordnen!");
-        
+        prompt.AppendLine("IMPORTANT SOURCE ATTRIBUTION RULES:");
+        prompt.AppendLine("1. Use ONLY information from the supplied sources");
+        prompt.AppendLine("2. Each source is clearly marked with === SOURCE X ===");
+        prompt.AppendLine("3. For history-enhanced sources, append the German tag '(aus Chatverlauf)'");
+        prompt.AppendLine("4. For current search results, use the standard citation format without extra tags");
+        prompt.AppendLine("5. Always use the exact filename from '📄 DOCUMENT FILENAME:'");
+        prompt.AppendLine("6. NEVER attribute information from one document to a different document!");
+
         if (hasHistoryBasedResults)
         {
             prompt.AppendLine();
             prompt.AppendLine("HISTORY-ENHANCED SOURCE INSTRUCTIONS:");
             prompt.AppendLine("- Format: ***filename:*** [description] (aus Chatverlauf)");
-            prompt.AppendLine("- Nur verwenden wenn die Information aus einer � HISTORY-ENHANCED SOURCE stammt");
+            prompt.AppendLine("- Only use this suffix when the information comes from a source explicitly marked as history-enhanced");
         }
         
         return prompt.ToString();
