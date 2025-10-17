@@ -27,6 +27,7 @@ public class ChatService : IChatService
 - Create clear topic separation with line breaks between different subjects
 - Use bullet points (•) for listing multiple related items or facts
 - Use numbered lists (1., 2., 3.) for sequential processes, steps, or prioritized information
+- Avoid Markdown heading syntax (#, ##, ###); keep section titles as regular text and use bold styling if emphasis is needed
 - Start complex answers with a brief introductory sentence
 - Keep paragraphs concise and focused on one main idea
 - Use consistent German terminology throughout the response";
