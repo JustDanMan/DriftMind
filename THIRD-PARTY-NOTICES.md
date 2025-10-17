@@ -309,7 +309,7 @@ END OF TERMS AND CONDITIONS
 
 ---
 
-### Microsoft.AspNetCore.OpenApi (8.0.20)
+### Microsoft.AspNetCore.OpenApi (8.0.21)
 License: MIT
 
 Copyright © Microsoft Corporation
