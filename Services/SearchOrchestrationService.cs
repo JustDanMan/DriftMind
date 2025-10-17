@@ -78,6 +78,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             // 1. Query expansion if enabled
             var searchQuery = request.Query;
             string? expandedQuery = null;
+            bool usedExpandedQuery = false;
 
             if (request.EnableQueryExpansion)
             {
@@ -85,6 +86,7 @@ public class SearchOrchestrationService : ISearchOrchestrationService
                 if (!string.Equals(expandedQuery, request.Query, StringComparison.OrdinalIgnoreCase))
                 {
                     searchQuery = expandedQuery;
+                    usedExpandedQuery = true;
                     _logger.LogInformation("Query expanded from '{OriginalQuery}' to '{ExpandedQuery}'",
                         request.Query, expandedQuery);
                 }
@@ -92,55 +94,80 @@ public class SearchOrchestrationService : ISearchOrchestrationService
 
             // 2. Generate embedding for the search query (using expanded query if available)
             var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(searchQuery);
+            IReadOnlyList<float>? originalQueryEmbedding = null;
+
+            if (usedExpandedQuery && request.UseSemanticSearch)
+            {
+                originalQueryEmbedding = await _embeddingService.GenerateEmbeddingAsync(request.Query);
+            }
 
             _logger.LogInformation("Embedding generated for search query");
 
             // 3. Perform hybrid search with more results for filtering
             var multiplier = searchQuery.Length < 20 ? 4 : 3; // More results for short queries
-            var searchResults = request.UseSemanticSearch
+            var primarySearchResults = request.UseSemanticSearch
                 ? await _searchService.HybridSearchAsync(searchQuery, queryEmbedding, request.MaxResults * multiplier, request.DocumentId)
                 : await _searchService.SearchAsync(searchQuery, Math.Min(request.MaxResults * 2, 50));
 
-            var resultsList = searchResults.GetResults().ToList();
-            _logger.LogInformation("Search results received: {ResultCount} for query: '{Query}'", resultsList.Count, request.Query);
+            Azure.Search.Documents.Models.SearchResults<DocumentChunk>? originalSearchResults = null;
+            if (usedExpandedQuery)
+            {
+                originalSearchResults = request.UseSemanticSearch
+                    ? await _searchService.HybridSearchAsync(request.Query, originalQueryEmbedding ?? queryEmbedding, request.MaxResults * multiplier, request.DocumentId)
+                    : await _searchService.SearchAsync(request.Query, Math.Min(request.MaxResults * 2, 50));
+
+                _logger.LogInformation("Running additional search with original query to preserve exact matches");
+            }
+
+            var combinedAzureResults = CombineSearchResults(primarySearchResults, originalSearchResults);
+            _logger.LogInformation("Search results received: {ResultCount} combined hits for query: '{Query}' (ExpandedUsed: {ExpandedUsed})",
+                combinedAzureResults.Count, request.Query, usedExpandedQuery);
 
             // Bulk load metadata for all unique documents (PERFORMANCE OPTIMIZATION)
-            var uniqueDocumentIds = resultsList
-                .Select(r => r.Document.DocumentId)
+            var uniqueDocumentIds = combinedAzureResults
+                .Where(r => r.Document?.DocumentId != null)
+                .Select(r => r.Document!.DocumentId)
                 .Distinct()
                 .ToList();
 
             var metadataBulk = await LoadMetadataBulkAsync(uniqueDocumentIds);            // 4. Create SearchResult objects from Azure Search results
             var results = new List<SearchResult>();
 
-            foreach (var result in resultsList)
+            foreach (var result in combinedAzureResults)
             {
+                var documentChunk = result.Document;
+                if (documentChunk == null)
+                {
+                    _logger.LogDebug("Skipping search result without document for query: '{Query}'", request.Query);
+                    continue;
+                }
+
                 double vectorScore = result.Score ?? 0.0;
                 double combinedScore = RelevanceAnalyzer.CalculateRelevanceScore(
-                    result.Document.Content,
+                    documentChunk.Content,
                     request.Query,
                     vectorScore);
 
                 // Get metadata from bulk-loaded cache (O(1) lookup!)
-                metadataBulk.TryGetValue(result.Document.DocumentId, out var metadata);
+                metadataBulk.TryGetValue(documentChunk.DocumentId, out var metadata);
 
                 results.Add(new SearchResult
                 {
-                    Id = result.Document.Id,
-                    Content = result.Document.Content,
-                    DocumentId = result.Document.DocumentId,
-                    ChunkIndex = result.Document.ChunkIndex,
+                    Id = documentChunk.Id,
+                    Content = documentChunk.Content,
+                    DocumentId = documentChunk.DocumentId,
+                    ChunkIndex = documentChunk.ChunkIndex,
                     Score = combinedScore,
                     VectorScore = vectorScore,
-                    Metadata = result.Document.Metadata,
-                    CreatedAt = result.Document.CreatedAt,
+                    Metadata = documentChunk.Metadata,
+                    CreatedAt = documentChunk.CreatedAt,
                     // Use bulk-loaded metadata or fallback to current chunk metadata
-                    BlobPath = metadata?.BlobPath ?? result.Document.BlobPath,
-                    BlobContainer = metadata?.BlobContainer ?? result.Document.BlobContainer,
-                    OriginalFileName = metadata?.OriginalFileName ?? result.Document.OriginalFileName,
-                    ContentType = metadata?.ContentType ?? result.Document.ContentType,
-                    TextContentBlobPath = metadata?.TextContentBlobPath ?? result.Document.TextContentBlobPath,
-                    FileSizeBytes = metadata?.FileSizeBytes ?? result.Document.FileSizeBytes
+                    BlobPath = metadata?.BlobPath ?? documentChunk.BlobPath,
+                    BlobContainer = metadata?.BlobContainer ?? documentChunk.BlobContainer,
+                    OriginalFileName = metadata?.OriginalFileName ?? documentChunk.OriginalFileName,
+                    ContentType = metadata?.ContentType ?? documentChunk.ContentType,
+                    TextContentBlobPath = metadata?.TextContentBlobPath ?? documentChunk.TextContentBlobPath,
+                    FileSizeBytes = metadata?.FileSizeBytes ?? documentChunk.FileSizeBytes
                     // Download: Use POST /download/token with documentId if OriginalFileName != null
                 });
             }
@@ -332,6 +359,45 @@ public class SearchOrchestrationService : ISearchOrchestrationService
             results.Count, finalResults.Count, request.Query);
 
         return finalResults;
+    }
+
+    private static List<Azure.Search.Documents.Models.SearchResult<DocumentChunk>> CombineSearchResults(
+        Azure.Search.Documents.Models.SearchResults<DocumentChunk> primaryResults,
+        Azure.Search.Documents.Models.SearchResults<DocumentChunk>? secondaryResults)
+    {
+        var combined = new Dictionary<string, Azure.Search.Documents.Models.SearchResult<DocumentChunk>>(StringComparer.Ordinal);
+
+        void Ingest(Azure.Search.Documents.Models.SearchResults<DocumentChunk>? source)
+        {
+            if (source == null) return;
+
+            foreach (var result in source.GetResults())
+            {
+                var documentChunk = result.Document;
+                if (documentChunk == null) continue;
+
+                var key = $"{documentChunk.DocumentId}:{documentChunk.ChunkIndex}";
+
+                if (combined.TryGetValue(key, out var existing))
+                {
+                    if ((result.Score ?? 0.0) > (existing.Score ?? 0.0))
+                    {
+                        combined[key] = result;
+                    }
+                }
+                else
+                {
+                    combined[key] = result;
+                }
+            }
+        }
+
+        Ingest(primaryResults);
+        Ingest(secondaryResults);
+
+        return combined.Values
+            .OrderByDescending(r => r.Score ?? 0.0)
+            .ToList();
     }
 
 
