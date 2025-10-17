@@ -1,7 +1,9 @@
 using Azure.AI.OpenAI;
 using OpenAI.Chat;
 using DriftMind.DTOs;
+using DriftMind.Models;
 using System.Text;
+using System.Linq;
 using DTO = DriftMind.DTOs;
 
 namespace DriftMind.Services;
@@ -299,108 +301,137 @@ public class ChatService : IChatService
             // Get all unique chunk indices for this document
             var chunkIndices = documentsResults.Select(r => r.ChunkIndex).Distinct().OrderBy(x => x).ToList();
 
-            // For each chunk index, get adjacent chunks
-            foreach (var chunkIndex in chunkIndices)
+            if (!chunkIndices.Any())
             {
+                continue;
+            }
+
+            // Preload all required chunks in as few range queries as possible
+            var mergedRanges = MergeChunkRanges(chunkIndices, adjacentChunksToInclude);
+            Dictionary<int, DocumentChunk> chunkDictionary;
+
+            if (mergedRanges.Any())
+            {
+                var rangeTasks = mergedRanges
+                    .Select(range => _searchService.GetChunksInRangeAsync(documentId, range.Start, range.End))
+                    .ToList();
+
                 try
                 {
-                    // Get adjacent chunks (including the target chunk)
-                    var adjacentChunks = await _searchService.GetAdjacentChunksAsync(documentId, chunkIndex, adjacentChunksToInclude);
-                    
-                    if (!adjacentChunks.Any())
-                    {
-                        _logger.LogWarning("No adjacent chunks found for DocumentId: {DocumentId}, ChunkIndex: {ChunkIndex}", 
-                            documentId, chunkIndex);
-                        continue;
-                    }
+                    var rangeResults = await Task.WhenAll(rangeTasks);
+                    chunkDictionary = rangeResults
+                        .SelectMany(r => r)
+                        .GroupBy(chunk => chunk.ChunkIndex)
+                        .ToDictionary(g => g.Key, g => g.First());
 
-                    // Get the original search result for this chunk to preserve score and metadata
-                    var originalResult = documentsResults.FirstOrDefault(r => r.ChunkIndex == chunkIndex);
-                    if (originalResult == null) continue;
-
-                    // Build context section for this expanded chunk group
-                    contextBuilder.AppendLine($"=== SOURCE {sourceCounter} ===");
-                    
-                    // Use pre-loaded metadata from SearchOrchestrationService
-                    string displayFileName;
-                    if (documentMetadata.TryGetValue(documentId, out var fileName) && !string.IsNullOrEmpty(fileName))
-                    {
-                        displayFileName = fileName;
-                    }
-                    else
-                    {
-                        displayFileName = $"Document-{sourceCounter}";
-                        _logger.LogWarning("No OriginalFileName available for DocumentId {DocumentId}, using fallback: {FileName}", 
-                            documentId, displayFileName);
-                    }
-                    
-                    contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {displayFileName}");
-                    contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
-                    contextBuilder.AppendLine($"📍 TARGET CHUNK: {chunkIndex} (with {adjacentChunks.Count - 1} adjacent chunks)");
-                    contextBuilder.AppendLine();
-
-                    // Add all adjacent chunks in order
-                    foreach (var chunk in adjacentChunks.OrderBy(c => c.ChunkIndex))
-                    {
-                        // Skip if we've already processed this chunk
-                        if (processedChunks.Contains(chunk.Id))
-                            continue;
-
-                        if (chunk.ChunkIndex == chunkIndex)
-                        {
-                            contextBuilder.AppendLine($"🎯 **RELEVANT CHUNK {chunk.ChunkIndex}** (Target):");
-                        }
-                        else
-                        {
-                            contextBuilder.AppendLine($"📄 Context Chunk {chunk.ChunkIndex}:");
-                        }
-                        
-                        contextBuilder.AppendLine(chunk.Content);
-                        contextBuilder.AppendLine();
-
-                        processedChunks.Add(chunk.Id);
-                    }
-
-                    contextBuilder.AppendLine("=== END SOURCE ===");
-                    contextBuilder.AppendLine();
-                    sourceCounter++;
+                    _logger.LogDebug("Preloaded {ChunkCount} chunks across {RangeCount} ranges for document {DocumentId}",
+                        chunkDictionary.Count, mergedRanges.Count, documentId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error loading adjacent chunks for DocumentId: {DocumentId}, ChunkIndex: {ChunkIndex}", 
-                        documentId, chunkIndex);
-                    
-                    // Fallback: Use only the original chunk
-                    var originalResult = documentsResults.FirstOrDefault(r => r.ChunkIndex == chunkIndex);
-                    if (originalResult != null)
+                    _logger.LogError(ex, "Error preloading chunk ranges for DocumentId: {DocumentId}", documentId);
+                    chunkDictionary = new Dictionary<int, DocumentChunk>();
+                }
+            }
+            else
+            {
+                chunkDictionary = new Dictionary<int, DocumentChunk>();
+            }
+
+            foreach (var chunkIndex in chunkIndices)
+            {
+                var originalResult = documentsResults.FirstOrDefault(r => r.ChunkIndex == chunkIndex);
+                if (originalResult == null)
+                {
+                    continue;
+                }
+
+                var startIndex = Math.Max(0, chunkIndex - adjacentChunksToInclude);
+                var endIndex = chunkIndex + adjacentChunksToInclude;
+
+                var adjacentChunks = new List<DocumentChunk>();
+                for (var index = startIndex; index <= endIndex; index++)
+                {
+                    if (chunkDictionary.TryGetValue(index, out var chunk))
                     {
-                        contextBuilder.AppendLine($"=== SOURCE {sourceCounter} (FALLBACK) ===");
-                        
-                        // Use pre-loaded metadata from SearchOrchestrationService in fallback
-                        string fallbackFileName;
-                        if (documentMetadata.TryGetValue(documentId, out var fileName) && !string.IsNullOrEmpty(fileName))
-                        {
-                            fallbackFileName = fileName;
-                        }
-                        else
-                        {
-                            fallbackFileName = $"Document-{sourceCounter}";
-                            _logger.LogWarning("No OriginalFileName in fallback for DocumentId {DocumentId}, using: {FileName}", 
-                                documentId, fallbackFileName);
-                        }
-                        
-                        contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {fallbackFileName}");
-                        contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
-                        contextBuilder.AppendLine($"📍 CHUNK: {chunkIndex}");
-                        contextBuilder.AppendLine();
-                        contextBuilder.AppendLine("CONTENT:");
-                        contextBuilder.AppendLine(originalResult.Content);
-                        contextBuilder.AppendLine();
-                        contextBuilder.AppendLine("=== END SOURCE ===");
-                        contextBuilder.AppendLine();
-                        sourceCounter++;
+                        adjacentChunks.Add(chunk);
                     }
                 }
+
+                if (!adjacentChunks.Any())
+                {
+                    _logger.LogWarning("No preloaded chunks found for DocumentId: {DocumentId}, ChunkIndex: {ChunkIndex}. Using fallback.",
+                        documentId, chunkIndex);
+
+                    contextBuilder.AppendLine($"=== SOURCE {sourceCounter} (FALLBACK) ===");
+
+                    string fallbackFileName;
+                    if (documentMetadata.TryGetValue(documentId, out var fileName) && !string.IsNullOrEmpty(fileName))
+                    {
+                        fallbackFileName = fileName;
+                    }
+                    else
+                    {
+                        fallbackFileName = $"Document-{sourceCounter}";
+                        _logger.LogWarning("No OriginalFileName in fallback for DocumentId {DocumentId}, using: {FileName}",
+                            documentId, fallbackFileName);
+                    }
+
+                    contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {fallbackFileName}");
+                    contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
+                    contextBuilder.AppendLine($"📍 CHUNK: {chunkIndex}");
+                    contextBuilder.AppendLine();
+                    contextBuilder.AppendLine("CONTENT:");
+                    contextBuilder.AppendLine(originalResult.Content);
+                    contextBuilder.AppendLine();
+                    contextBuilder.AppendLine("=== END SOURCE ===");
+                    contextBuilder.AppendLine();
+                    sourceCounter++;
+                    continue;
+                }
+
+                contextBuilder.AppendLine($"=== SOURCE {sourceCounter} ===");
+
+                string displayFileName;
+                if (documentMetadata.TryGetValue(documentId, out var docFileName) && !string.IsNullOrEmpty(docFileName))
+                {
+                    displayFileName = docFileName;
+                }
+                else
+                {
+                    displayFileName = $"Document-{sourceCounter}";
+                    _logger.LogWarning("No OriginalFileName available for DocumentId {DocumentId}, using fallback: {FileName}",
+                        documentId, displayFileName);
+                }
+
+                contextBuilder.AppendLine($"📄 DOCUMENT FILENAME: {displayFileName}");
+                contextBuilder.AppendLine($"🎯 RELEVANCE SCORE: {originalResult.Score:F2}");
+                contextBuilder.AppendLine($"📍 TARGET CHUNK: {chunkIndex} (with {adjacentChunks.Count - 1} adjacent chunks)");
+                contextBuilder.AppendLine();
+
+                foreach (var chunk in adjacentChunks.OrderBy(c => c.ChunkIndex))
+                {
+                    if (processedChunks.Contains(chunk.Id))
+                        continue;
+
+                    if (chunk.ChunkIndex == chunkIndex)
+                    {
+                        contextBuilder.AppendLine($"🎯 **RELEVANT CHUNK {chunk.ChunkIndex}** (Target):");
+                    }
+                    else
+                    {
+                        contextBuilder.AppendLine($"📄 Context Chunk {chunk.ChunkIndex}:");
+                    }
+
+                    contextBuilder.AppendLine(chunk.Content);
+                    contextBuilder.AppendLine();
+
+                    processedChunks.Add(chunk.Id);
+                }
+
+                contextBuilder.AppendLine("=== END SOURCE ===");
+                contextBuilder.AppendLine();
+                sourceCounter++;
             }
         }
 
@@ -409,6 +440,44 @@ public class ChatService : IChatService
             sourceCounter - 1, adjacentChunksToInclude);
         
         return finalContext;
+    }
+
+    private static List<(int Start, int End)> MergeChunkRanges(List<int> chunkIndices, int adjacentCount)
+    {
+        if (!chunkIndices.Any())
+        {
+            return new List<(int Start, int End)>();
+        }
+
+        var intervals = chunkIndices
+            .Select(index => (Start: Math.Max(0, index - adjacentCount), End: index + adjacentCount))
+            .OrderBy(interval => interval.Start)
+            .ToList();
+
+        if (!intervals.Any())
+        {
+            return new List<(int Start, int End)>();
+        }
+
+        var merged = new List<(int Start, int End)> { intervals[0] };
+
+        for (var i = 1; i < intervals.Count; i++)
+        {
+            var current = intervals[i];
+            var lastIndex = merged.Count - 1;
+            var last = merged[lastIndex];
+
+            if (current.Start <= last.End + 1)
+            {
+                merged[lastIndex] = (last.Start, Math.Max(last.End, current.End));
+            }
+            else
+            {
+                merged.Add(current);
+            }
+        }
+
+        return merged;
     }
 
     private string BuildEnhancedSystemPrompt()

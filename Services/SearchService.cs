@@ -17,6 +17,7 @@ public interface ISearchService
     Task<List<string>> GetAllDocumentIdsAsync();
     Task<List<DocumentChunk>> GetDocumentChunksAsync(string documentId);
     Task<List<DocumentChunk>> GetAdjacentChunksAsync(string documentId, int chunkIndex, int adjacentCount);
+    Task<List<DocumentChunk>> GetChunksInRangeAsync(string documentId, int startChunkIndex, int endChunkIndex);
     Task<Dictionary<string, List<DocumentChunk>>> GetAllDocumentsAsync(int maxResults = 50, int skip = 0);
     Task<bool> DeleteDocumentAsync(string documentId);
     Task<List<DocumentChunk>> GetChunk0sForDocumentsAsync(List<string> documentIds);
@@ -404,6 +405,49 @@ public class SearchService : ISearchService
         {
             _logger.LogError(ex, "Error retrieving adjacent chunks for document: {DocumentId}, chunk: {ChunkIndex}", 
                 documentId, chunkIndex);
+            throw;
+        }
+    }
+
+    public async Task<List<DocumentChunk>> GetChunksInRangeAsync(string documentId, int startChunkIndex, int endChunkIndex)
+    {
+        try
+        {
+            if (endChunkIndex < startChunkIndex)
+            {
+                return new List<DocumentChunk>();
+            }
+
+            var normalizedStart = Math.Max(0, startChunkIndex);
+            var normalizedEnd = Math.Max(normalizedStart, endChunkIndex);
+
+            _logger.LogDebug("Retrieving chunk range {Start}-{End} for document {DocumentId}",
+                normalizedStart, normalizedEnd, documentId);
+
+            var searchOptions = new SearchOptions
+            {
+                Filter = $"DocumentId eq '{documentId}' and ChunkIndex ge {normalizedStart} and ChunkIndex le {normalizedEnd}",
+                OrderBy = { "ChunkIndex asc" },
+                Size = Math.Max(normalizedEnd - normalizedStart + 1, 1)
+            };
+
+            var searchResults = await _searchClient.SearchAsync<DocumentChunk>("*", searchOptions);
+            var chunks = new List<DocumentChunk>();
+
+            await foreach (var result in searchResults.Value.GetResultsAsync())
+            {
+                chunks.Add(result.Document);
+            }
+
+            _logger.LogDebug("Retrieved {Count} chunks in range {Start}-{End} for document {DocumentId}",
+                chunks.Count, normalizedStart, normalizedEnd, documentId);
+
+            return chunks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving chunk range {Start}-{End} for document {DocumentId}",
+                startChunkIndex, endChunkIndex, documentId);
             throw;
         }
     }
