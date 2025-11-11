@@ -19,7 +19,7 @@ Transform your documents into intelligent, searchable knowledge. Upload files, a
 ## 🚀 Quick Start
 
 ### Prerequisites
-- .NET 8.0 SDK
+- .NET 10.0 SDK
 - Azure OpenAI Service (text-embedding-ada-002, gpt-5-chat)
 - Azure AI Search Service  
 - Azure Blob Storage

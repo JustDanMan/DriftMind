@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # .NET 8 NuGet packages
+  # .NET 10 NuGet packages
   - package-ecosystem: "nuget"
     directory: "/"
     schedule:
@@ -10,13 +10,13 @@ updates:
     assignees:
       - "JustDanMan"
     commit-message:
-      prefix: "deps(.NET 8)"
+  prefix: "deps(.NET 10)"
       include: "scope"
     labels:
       - "dependencies"
       - "dotnet"
     target-branch: "main"
-    # Block major version updates (e.g., .NET 8 → 9)
+  # Block major version updates (e.g., .NET 10 → 11)
     ignore:
       - dependency-name: "Microsoft.*"
         update-types: ["version-update:semver-major"]
@@ -42,7 +42,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # Group ASP.NET Core 8 and API packages
+  # Group ASP.NET Core 10 and API packages
       aspnetcore-api:
         patterns:
           - "Microsoft.AspNetCore.*"
@@ -86,7 +86,7 @@ updates:
       - "github-actions"
     target-branch: "main"
 
-  # Docker dependencies (.NET 8 only - block all .NET 9+ updates)
+  # Docker dependencies (.NET 10 only - block all .NET 11+ updates)
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -97,7 +97,7 @@ updates:
     assignees:
       - "JustDanMan"
     commit-message:
-      prefix: "docker(.NET 8)"
+      prefix: "docker(.NET 10)"
     labels:
       - "dependencies"
       - "docker"
