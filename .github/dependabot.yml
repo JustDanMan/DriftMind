@@ -10,7 +10,7 @@ updates:
     assignees:
       - "JustDanMan"
     commit-message:
-  prefix: "deps(.NET 10)"
+      prefix: "deps(.NET 10)"
       include: "scope"
     labels:
       - "dependencies"
