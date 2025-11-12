@@ -355,8 +355,8 @@ The following third-party packages are used in this project. Their respective li
 | Azure.Storage.Blobs | 12.26.0 | MIT | © Microsoft Corporation |
 | DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
 | PdfPig | 0.1.11 | Apache-2.0 | © UglyToad / PdfPig Contributors |
-| Microsoft.AspNetCore.OpenApi | 8.0.21 | MIT | © Microsoft Corporation |
-| Swashbuckle.AspNetCore | 9.0.6 | MIT | © Swashbuckle Contributors |
+| Microsoft.AspNetCore.OpenApi | 10.0.0 | MIT | © Microsoft Corporation |
+| Swashbuckle.AspNetCore | 10.0.0 | MIT | © Swashbuckle Contributors |
 
 Full license texts: see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
 

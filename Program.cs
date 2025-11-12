@@ -72,7 +72,10 @@ using (var scope = app.Services.CreateScope())
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
+    app.UseSwagger(options =>
+    {
+        options.OpenApiVersion = Microsoft.OpenApi.OpenApiSpecVersion.OpenApi3_1;
+    });
     app.UseSwaggerUI();
 }
 
@@ -116,7 +119,6 @@ app.MapPost("/upload", async (IFormFile file, string? documentId, string? metada
         statusCode: 500);
 })
 .WithName("UploadFile")
-.WithOpenApi()
 .WithSummary("Uploads a file, extracts text, splits it into chunks and creates embeddings")
 .WithDescription("This endpoint accepts files (.txt, .md, .pdf, .docx), extracts text, splits it into chunks, creates embeddings and stores them in Azure AI Search. Maximum file size: 12MB.")
 .DisableAntiforgery();
@@ -163,7 +165,6 @@ app.MapPost("/search", async (SearchRequest request, ISearchOrchestrationService
         statusCode: 500);
 })
 .WithName("SearchDocuments")
-.WithOpenApi()
 .WithSummary("Searches documents and generates an answer with GPT-5 Chat")
 .WithDescription("This endpoint performs a semantic search in the Azure AI Search database and generates an answer with GPT-5 Chat based on the found documents.");
 
@@ -196,7 +197,6 @@ app.MapPost("/documents", async (DocumentListRequest request, IDocumentManagemen
         statusCode: 500);
 })
 .WithName("ListDocuments")
-.WithOpenApi()
 .WithSummary("Lists all documents in the database")
 .WithDescription("This endpoint retrieves a list of all documents stored in Azure AI Search with their metadata, chunk counts, and sample content.");
 
@@ -218,7 +218,6 @@ app.MapGet("/documents", async (int maxResults, int skip, string? documentId, ID
         statusCode: 500);
 })
 .WithName("ListDocumentsGet")
-.WithOpenApi()
 .WithSummary("Lists all documents in the database (GET)")
 .WithDescription("This endpoint retrieves a list of all documents stored in Azure AI Search. Use query parameters: maxResults (1-100, default 50), skip (default 0), documentId (optional filter).");
 
@@ -255,7 +254,6 @@ app.MapDelete("/documents/{documentId}", async (string documentId, IDocumentMana
     }
 })
 .WithName("DeleteDocument")
-.WithOpenApi()
 .WithSummary("Deletes a document and all its chunks")
 .WithDescription("This endpoint deletes a document and all its associated chunks from Azure AI Search. The operation cannot be undone.");
 
@@ -291,7 +289,6 @@ app.MapPost("/documents/delete", async (DeleteDocumentRequest request, IDocument
     }
 })
 .WithName("DeleteDocumentPost")
-.WithOpenApi()
 .WithSummary("Deletes a document and all its chunks (POST)")
 .WithDescription("This endpoint deletes a document and all its associated chunks from Azure AI Search using a POST request with JSON body. The operation cannot be undone.");
 
@@ -325,7 +322,6 @@ app.MapPost("/download/token", async (GenerateDownloadTokenRequest request, IDow
     return Results.Ok(response);
 })
 .WithName("GenerateDownloadToken")
-.WithOpenApi()
 .WithSummary("Generates a secure, time-limited download token for a document")
 .WithDescription("Creates a secure token that allows downloading a specific document. The token expires after the specified time and can only be used for the requested document.")
 .WithTags("Downloads");
@@ -373,7 +369,6 @@ app.MapPost("/download/file", async (TokenDownloadRequest request, IDownloadServ
     }
 })
 .WithName("DownloadFileWithToken")
-.WithOpenApi()
 .WithSummary("Downloads a file using a secure token")
 .WithDescription("Downloads the file associated with the provided download token. The token must be valid and not expired. Token is provided in the request body for better security.")
 .WithTags("Downloads");
@@ -399,7 +394,6 @@ app.MapPost("/admin/migrate/optimize-metadata", async (IDataMigrationService mig
     }
 })
 .WithName("MigrateOptimizeMetadata")
-.WithOpenApi()
 .WithSummary("Migrates existing documents to optimized metadata storage")
 .WithDescription("Optimizes storage by moving all document metadata (filename, size, content type) to chunk 0 only, removing redundancy from other chunks. This reduces storage usage by ~98% for metadata.")
 .WithTags("Administration", "Migration");
@@ -425,7 +419,6 @@ app.MapPost("/admin/migrate/fix-content-types", async (IDataMigrationService mig
     }
 })
 .WithName("MigrateFixContentTypes")
-.WithOpenApi()
 .WithSummary("Fixes incorrect content types for existing documents")
 .WithDescription("Corrects content types for existing documents by mapping file extensions to proper MIME types (e.g., .pdf -> application/pdf instead of application/octet-stream). Updates both Azure Search index and blob storage metadata.")
 .WithTags("Administration", "Migration");

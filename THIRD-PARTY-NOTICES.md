@@ -11,8 +11,8 @@ This file lists third-party packages included in DriftMind and provides the lice
 | Azure.Storage.Blobs | 12.26.0 | MIT | © Microsoft Corporation |
 | DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
 | PdfPig | 0.1.11 | Apache-2.0 | © UglyToad / PdfPig Contributors |
-| Microsoft.AspNetCore.OpenApi | 8.0.21 | MIT | © Microsoft Corporation |
-| Swashbuckle.AspNetCore | 9.0.6 | MIT | © Swashbuckle Contributors |
+| Microsoft.AspNetCore.OpenApi | 10.0.0 | MIT | © Microsoft Corporation |
+| Swashbuckle.AspNetCore | 10.0.0 | MIT | © Swashbuckle Contributors |
 
 ---
 
@@ -309,7 +309,7 @@ END OF TERMS AND CONDITIONS
 
 ---
 
-### Microsoft.AspNetCore.OpenApi (8.0.21)
+### Microsoft.AspNetCore.OpenApi (10.0.0)
 License: MIT
 
 Copyright © Microsoft Corporation
@@ -336,7 +336,7 @@ SOFTWARE.
 
 ---
 
-### Swashbuckle.AspNetCore (9.0.6)
+### Swashbuckle.AspNetCore (10.0.0)
 License: MIT
 
 Copyright © Richard Morris
