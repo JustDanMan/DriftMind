@@ -356,7 +356,7 @@ The following third-party packages are used in this project. Their respective li
 | DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
 | PdfPig | 0.1.11 | Apache-2.0 | © UglyToad / PdfPig Contributors |
 | Microsoft.AspNetCore.OpenApi | 10.0.0 | MIT | © Microsoft Corporation |
-| Swashbuckle.AspNetCore | 10.0.0 | MIT | © Swashbuckle Contributors |
+| Swashbuckle.AspNetCore | 10.0.1 | MIT | © Swashbuckle Contributors |
 
 Full license texts: see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
 

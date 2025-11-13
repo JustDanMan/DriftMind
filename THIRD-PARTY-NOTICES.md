@@ -12,7 +12,7 @@ This file lists third-party packages included in DriftMind and provides the lice
 | DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
 | PdfPig | 0.1.11 | Apache-2.0 | © UglyToad / PdfPig Contributors |
 | Microsoft.AspNetCore.OpenApi | 10.0.0 | MIT | © Microsoft Corporation |
-| Swashbuckle.AspNetCore | 10.0.0 | MIT | © Swashbuckle Contributors |
+| Swashbuckle.AspNetCore | 10.0.1 | MIT | © Swashbuckle Contributors |
 
 ---
 
@@ -336,7 +336,7 @@ SOFTWARE.
 
 ---
 
-### Swashbuckle.AspNetCore (10.0.0)
+### Swashbuckle.AspNetCore (10.0.1)
 License: MIT
 
 Copyright © Richard Morris
