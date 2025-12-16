@@ -10,8 +10,8 @@ This file lists third-party packages included in DriftMind and provides the lice
 | Azure.Search.Documents | 11.7.0 | MIT | © Microsoft Corporation |
 | Azure.Storage.Blobs | 12.26.0 | MIT | © Microsoft Corporation |
 | DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
-| PdfPig | 0.1.11 | Apache-2.0 | © UglyToad / PdfPig Contributors |
-| Microsoft.AspNetCore.OpenApi | 10.0.0 | MIT | © Microsoft Corporation |
+| PdfPig | 0.1.12 | Apache-2.0 | © UglyToad / PdfPig Contributors |
+| Microsoft.AspNetCore.OpenApi | 10.0.1 | MIT | © Microsoft Corporation |
 | Swashbuckle.AspNetCore | 10.0.1 | MIT | © Swashbuckle Contributors |
 
 ---
@@ -126,7 +126,7 @@ SOFTWARE.
 
 ---
 
-### PdfPig (0.1.11)
+### PdfPig (0.1.12)
 License: Apache License 2.0
 
 Copyright © UglyToad / PdfPig Contributors
@@ -309,7 +309,7 @@ END OF TERMS AND CONDITIONS
 
 ---
 
-### Microsoft.AspNetCore.OpenApi (10.0.0)
+### Microsoft.AspNetCore.OpenApi (10.0.1)
 License: MIT
 
 Copyright © Microsoft Corporation
