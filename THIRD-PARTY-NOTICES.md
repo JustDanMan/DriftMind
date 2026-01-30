@@ -8,10 +8,10 @@ This file lists third-party packages included in DriftMind and provides the lice
 |---------|---------|---------|-----------|
 | Azure.AI.OpenAI | 2.1.0 | MIT | © Microsoft Corporation |
 | Azure.Search.Documents | 11.7.0 | MIT | © Microsoft Corporation |
-| Azure.Storage.Blobs | 12.26.0 | MIT | © Microsoft Corporation |
-| DocumentFormat.OpenXml | 3.3.0 | MIT | © Microsoft Corporation |
-| PdfPig | 0.1.12 | Apache-2.0 | © UglyToad / PdfPig Contributors |
-| Microsoft.AspNetCore.OpenApi | 10.0.1 | MIT | © Microsoft Corporation |
+| Azure.Storage.Blobs | 12.27.0 | MIT | © Microsoft Corporation |
+| DocumentFormat.OpenXml | 3.4.1 | MIT | © Microsoft Corporation |
+| PdfPig | 0.1.13 | Apache-2.0 | © UglyToad / PdfPig Contributors |
+| Microsoft.AspNetCore.OpenApi | 10.0.2 | MIT | © Microsoft Corporation |
 | Swashbuckle.AspNetCore | 10.0.1 | MIT | © Swashbuckle Contributors |
 
 ---
@@ -72,7 +72,7 @@ SOFTWARE.
 
 ---
 
-### Azure.Storage.Blobs (12.26.0)
+### Azure.Storage.Blobs (12.27.0)
 License: MIT
 
 Copyright © Microsoft Corporation
@@ -99,7 +99,7 @@ SOFTWARE.
 
 ---
 
-### DocumentFormat.OpenXml (3.3.0)
+### DocumentFormat.OpenXml (3.4.1)
 License: MIT
 
 Copyright © Microsoft Corporation
@@ -126,7 +126,7 @@ SOFTWARE.
 
 ---
 
-### PdfPig (0.1.12)
+### PdfPig (0.1.13)
 License: Apache License 2.0
 
 Copyright © UglyToad / PdfPig Contributors
@@ -309,7 +309,7 @@ END OF TERMS AND CONDITIONS
 
 ---
 
-### Microsoft.AspNetCore.OpenApi (10.0.1)
+### Microsoft.AspNetCore.OpenApi (10.0.2)
 License: MIT
 
 Copyright © Microsoft Corporation
