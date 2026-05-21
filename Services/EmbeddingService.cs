@@ -1,4 +1,3 @@
-using Azure.AI.OpenAI;
 using OpenAI.Embeddings;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -15,11 +14,10 @@ public class EmbeddingService : IEmbeddingService
     private readonly EmbeddingClient _embeddingClient;
     private readonly ILogger<EmbeddingService> _logger;
     private readonly IMemoryCache _cache;
-    private readonly string _embeddingModel = "text-embedding-ada-002";
 
-    public EmbeddingService(AzureOpenAIClient azureOpenAIClient, ILogger<EmbeddingService> logger, IMemoryCache cache)
+    public EmbeddingService(EmbeddingClient embeddingClient, ILogger<EmbeddingService> logger, IMemoryCache cache)
     {
-        _embeddingClient = azureOpenAIClient.GetEmbeddingClient(_embeddingModel);
+        _embeddingClient = embeddingClient;
         _logger = logger;
         _cache = cache;
     }

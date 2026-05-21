@@ -1,4 +1,3 @@
-using Azure.AI.OpenAI;
 using OpenAI.Chat;
 using DriftMind.DTOs;
 using DTO = DriftMind.DTOs;
@@ -14,14 +13,15 @@ public class QueryExpansionService : IQueryExpansionService
 {
     private readonly ChatClient _chatClient;
     private readonly ILogger<QueryExpansionService> _logger;
+    private readonly string? _queryExpansionReasoningEffort;
 
     public QueryExpansionService(
-        AzureOpenAIClient azureOpenAIClient,
+        ChatClient chatClient,
         IConfiguration configuration,
         ILogger<QueryExpansionService> logger)
     {
-        var chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-5-chat";
-        _chatClient = azureOpenAIClient.GetChatClient(chatModel);
+        _queryExpansionReasoningEffort = configuration["AzureOpenAI:QueryExpansionReasoningEffort"];
+        _chatClient = chatClient;
         _logger = logger;
     }
 
@@ -49,7 +49,8 @@ public class QueryExpansionService : IQueryExpansionService
                 new UserChatMessage(userPrompt)
             };
 
-            var response = await _chatClient.CompleteChatAsync(messages);
+            var options = OpenAIChatOptionsFactory.Create(_queryExpansionReasoningEffort, _logger, "query expansion");
+            var response = await _chatClient.CompleteChatAsync(messages, options);
             var expandedQuery = response.Value.Content[0].Text.Trim();
 
             // Validate the expanded query is meaningful and different

@@ -20,7 +20,7 @@ Transform your documents into intelligent, searchable knowledge. Upload files, a
 
 ### Prerequisites
 - .NET 10.0 SDK
-- Azure OpenAI Service (text-embedding-ada-002, gpt-5-chat)
+- Azure OpenAI Service (text-embedding-ada-002, gpt-5.4)
 - Azure AI Search Service  
 - Azure Blob Storage
 
@@ -60,7 +60,7 @@ docker pull ghcr.io/justdanman/driftmind:latest
 
 1. **Azure OpenAI Service**
    - Deploy `text-embedding-ada-002` model
-   - Deploy `gpt-5-chat` model
+  - Deploy `gpt-5.4` model
    - Note endpoint and API key
 
 2. **Azure AI Search Service**  
@@ -82,7 +82,9 @@ Update `appsettings.json`:
     "Endpoint": "https://your-openai.openai.azure.com/",
     "ApiKey": "your-api-key",
     "EmbeddingDeploymentName": "text-embedding-ada-002",
-    "ChatDeploymentName": "gpt-5-chat"
+    "ChatDeploymentName": "gpt-5.4",
+    "AnswerReasoningEffort": "",
+    "QueryExpansionReasoningEffort": ""
   },
   "AzureSearch": {
     "Endpoint": "https://your-search.search.windows.net",
@@ -94,6 +96,8 @@ Update `appsettings.json`:
   }
 }
 ```
+
+Reasoning effort is optional and should only be configured for reasoning-capable deployments such as o3, o4-mini, or GPT-5 reasoning deployments that support it. Supported values depend on model and SDK support and are typically `low`, `medium`, `high`, and in some environments `minimal`. Leave the reasoning values empty for standard chat deployments.
 
 ## 📡 API Reference
 

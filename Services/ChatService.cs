@@ -1,4 +1,3 @@
-using Azure.AI.OpenAI;
 using OpenAI.Chat;
 using DriftMind.DTOs;
 using DriftMind.Models;
@@ -20,7 +19,7 @@ public class ChatService : IChatService
     private readonly ISearchService _searchService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ChatService> _logger;
-    private readonly string _chatModel;
+    private readonly string? _answerReasoningEffort;
 
     private const string BaseFormattingRequirements = @"FORMATTING REQUIREMENTS:
 - Structure your response with clear paragraphs and logical flow
@@ -72,13 +71,13 @@ public class ChatService : IChatService
     }
 
     public ChatService(
-        AzureOpenAIClient azureOpenAIClient, 
+        ChatClient chatClient,
         ISearchService searchService,
         IConfiguration configuration, 
         ILogger<ChatService> logger)
     {
-        _chatModel = configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-5-chat";
-        _chatClient = azureOpenAIClient.GetChatClient(_chatModel);
+        _answerReasoningEffort = configuration["AzureOpenAI:AnswerReasoningEffort"];
+        _chatClient = chatClient;
         _searchService = searchService;
         _configuration = configuration;
         _logger = logger;
@@ -128,7 +127,8 @@ public class ChatService : IChatService
                 new UserChatMessage(userPrompt)
             };
 
-            var response = await _chatClient.CompleteChatAsync(messages);
+            var options = OpenAIChatOptionsFactory.Create(_answerReasoningEffort, _logger, "answer generation");
+            var response = await _chatClient.CompleteChatAsync(messages, options);
             
             _logger.LogInformation("Generated answer with {SourceCount} relevant sources for query: {Query}", 
                 relevantResults.Count, query);
@@ -215,7 +215,8 @@ public class ChatService : IChatService
             var userPrompt = BuildUserPromptWithContext(query, context, searchResults);
             messages.Add(new UserChatMessage(userPrompt));
 
-            var response = await _chatClient.CompleteChatAsync(messages);
+            var options = OpenAIChatOptionsFactory.Create(_answerReasoningEffort, _logger, "answer generation with history");
+            var response = await _chatClient.CompleteChatAsync(messages, options);
             
             _logger.LogInformation("Generated answer with history using {SourceCount} relevant sources for query: {Query}", 
                 relevantResults.Count, query);
@@ -256,7 +257,8 @@ public class ChatService : IChatService
             // Add current query
             messages.Add(new UserChatMessage(query));
 
-            var response = await _chatClient.CompleteChatAsync(messages);
+            var options = OpenAIChatOptionsFactory.Create(_answerReasoningEffort, _logger, "history-only answer generation");
+            var response = await _chatClient.CompleteChatAsync(messages, options);
             return response.Value.Content[0].Text;
         }
         catch (Exception ex)
@@ -506,7 +508,8 @@ public class ChatService : IChatService
     var corePrinciples = @"CORE PRINCIPLES:
 1. You are a DOCUMENT-BASED system - your primary purpose is to help users access knowledge from their uploaded documents
 2. Only answer questions that relate to information present in the provided sources
-3. If NO relevant information exists in the sources, clearly state in German: ""Ich konnte keine relevanten Informationen zu Ihrer Frage in den hochgeladenen Dokumenten finden.""";
+3. If the sources contain a clear and usable answer, answer directly and naturally instead of leading with limitations or caveats
+4. If NO relevant information exists in the sources, clearly state in German: ""Ich konnte keine relevanten Informationen zu Ihrer Frage in den hochgeladenen Dokumenten finden.""";
 
     var supplementaryKnowledge = @"ALLOWED SUPPLEMENTARY KNOWLEDGE:
 - You may provide brief explanations of technical terms or concepts that appear in the documents
@@ -519,11 +522,21 @@ public class ChatService : IChatService
 3. Do not invent information that is not in the sources
 4. If sources contradict each other, mention this clearly
 5. Always respond in German in a natural, professional style
-6. If the relevance score is low (<0.5), mention that the information may not be directly related
-7. Combine information from multiple sources when they complement each other
-8. Be transparent about when you're adding explanatory context vs. document content
-9. Do NOT ask follow-up questions at the end of your response
-10. Do NOT offer to provide more information, summaries, or additional help";
+6. Do not mention internal relevance scores, retrieval quality, or ranking logic in the answer
+7. Only mention uncertainty when it materially changes the answer or the sources are genuinely ambiguous
+8. If a source contains a practical recommendation, naming pattern, abbreviation, or convention that answers the question, present it directly instead of arguing whether the wording is officially labeled as a recommendation
+9. Avoid defensive phrasing such as repeated statements that something is not explicitly recommended when the documents still provide a clear answer
+10. Combine information from multiple sources when they complement each other
+11. Be transparent about when you're adding explanatory context vs. document content
+12. Do NOT ask follow-up questions at the end of your response
+13. Do NOT offer to provide more information, summaries, or additional help";
+
+    var responseStyle = @"RESPONSE STYLE:
+- Start with the answer, not with source limitations
+- Prefer clear, natural prose over audit-style wording
+- Use caveats sparingly and only when they are important for correctness
+- When the documents support a likely answer, formulate it as a helpful recommendation from the available material
+- Do not sound legalistic, overly technical, or overly self-protective";
 
     var citationFormat = @"CITATION FORMAT:
 End with a **Quellen:** section listing the sources used with their exact document filenames:
@@ -535,6 +548,7 @@ End with a **Quellen:** section listing the sources used with their exact docume
         corePrinciples,
         supplementaryKnowledge,
         strictRules,
+        responseStyle,
         BaseFormattingRequirements,
         citationFormat,
         BaseSourceRules,
@@ -554,7 +568,8 @@ End with a **Quellen:** section listing the sources used with their exact docume
 1. You are a DOCUMENT-BASED system - your primary purpose is to help users access knowledge from their uploaded documents
 2. Use the provided sources as the primary source of information
 3. Use the chat history for context and to establish references to previous conversations
-4. Only answer questions that relate to information present in the sources or previously discussed document content";
+4. Only answer questions that relate to information present in the sources or previously discussed document content
+5. If the sources contain a clear answer, answer directly and naturally before adding nuance";
 
     var availabilityLogic = @"DOCUMENT AVAILABILITY LOGIC:
 - If the provided sources contain relevant information: Answer based on sources + chat history context
@@ -573,9 +588,20 @@ End with a **Quellen:** section listing the sources used with their exact docume
 4. If sources and chat history contradict, mention this and prioritize the sources
 5. Always respond in German in a natural, professional style
 6. Establish references to previous conversation when relevant
-7. Be transparent about when you're adding explanatory context vs. document content
-8. Do NOT ask follow-up questions at the end of your response
-9. Do NOT offer to provide more information, summaries, or additional help";
+7. Do not mention internal relevance scores, retrieval quality, or ranking logic in the answer
+8. Only mention uncertainty when it materially changes the answer or the sources are genuinely ambiguous
+9. If a source contains a practical recommendation, naming pattern, abbreviation, or convention that answers the question, present it directly instead of arguing whether the wording is officially labeled as a recommendation
+10. Avoid defensive phrasing such as repeated statements that something is not explicitly recommended when the sources still provide a clear answer
+11. Be transparent about when you're adding explanatory context vs. document content
+12. Do NOT ask follow-up questions at the end of your response
+13. Do NOT offer to provide more information, summaries, or additional help";
+
+    var responseStyle = @"RESPONSE STYLE:
+- Start with the answer, not with source limitations
+- Prefer clear, natural prose over audit-style wording
+- Use caveats sparingly and only when they are important for correctness
+- When the sources support a likely answer, formulate it as a helpful recommendation from the available material
+- Do not sound legalistic, overly technical, or overly self-protective";
 
      var citationAttribution = @"CITATION AND SOURCE ATTRIBUTION:
 CRITICAL: Maintain exact correspondence between information and sources!
@@ -615,6 +641,7 @@ End with a **Quellen:** section using the original simple format:
         availabilityLogic,
         supplementaryKnowledge,
         strictRules,
+        responseStyle,
         citationAttribution,
         strictAttributionRules,
         citationFormat,
@@ -647,15 +674,17 @@ End with a **Quellen:** section using the original simple format:
 - When using supplementary knowledge, always state in German: ""Zur Erklärung des Begriffs..."" or ""Ergänzend...""";
 
         var strictRules = @"STRICT RULES:
-1. NEVER answer questions about completely new topics that were not previously covered in document-based discussions
-2. Always base your answer on information that was previously derived from uploaded documents (visible in chat history)
-3. If no document-based information exists in chat history for the topic, state in German: ""Ich konnte keine relevanten Informationen zu Ihrer Frage in der bisherigen Unterhaltung oder den Dokumenten finden.""
-4. You may elaborate, reframe, and expand on previously found document information to be helpful
-5. Be transparent when adding explanatory context vs. referencing previous document findings
-6. Always respond in German
-7. Do NOT ask follow-up questions at the end of your response
-8. Do NOT offer to provide more information, summaries, or additional help
-9. When referencing previous document information, always mention the exact document filename if available in chat history";
+    1. NEVER answer questions about completely new topics that were not previously covered in document-based discussions
+    2. Always base your answer on information that was previously derived from uploaded documents (visible in chat history)
+    3. If no document-based information exists in chat history for the topic, state in German: ""Ich konnte keine relevanten Informationen zu Ihrer Frage in der bisherigen Unterhaltung oder den Dokumenten finden.""
+    4. You may elaborate, reframe, and expand on previously found document information to be helpful
+    5. Be transparent when adding explanatory context vs. referencing previous document findings
+    6. Always respond in German
+    7. Do not sound legalistic, overly technical, or overly self-protective
+    8. If prior document-based discussion already supports a clear answer, state it directly before adding nuance
+    9. Do NOT ask follow-up questions at the end of your response
+    10. Do NOT offer to provide more information, summaries, or additional help
+    11. When referencing previous document information, always mention the exact document filename if available in chat history";
 
     var formattingRequirements = BaseFormattingRequirements + "\n- Reference previous conversations using German phrases such as \"Wie bereits aus den Dokumenten erwähnt...\" or \"Basierend auf den zuvor gefundenen Informationen...\"";
 

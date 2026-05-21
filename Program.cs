@@ -1,10 +1,13 @@
 using Azure;
-using Azure.AI.OpenAI;
 using Azure.Search.Documents.Indexes;
 using Azure.Storage.Blobs;
 using DriftMind.DTOs;
 using DriftMind.Services;
 using DriftMind.Models;
+using OpenAI;
+using OpenAI.Chat;
+using OpenAI.Embeddings;
+using System.ClientModel;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,7 +31,23 @@ builder.Services.Configure<FileUploadOptions>(
 // Azure OpenAI Configuration
 var azureOpenAIEndpoint = builder.Configuration["AzureOpenAI:Endpoint"]!;
 var azureOpenAIApiKey = builder.Configuration["AzureOpenAI:ApiKey"]!;
-builder.Services.AddSingleton(sp => new AzureOpenAIClient(new Uri(azureOpenAIEndpoint), new AzureKeyCredential(azureOpenAIApiKey)));
+
+var azureOpenAIBaseUri = new Uri($"{azureOpenAIEndpoint.TrimEnd('/')}/openai/v1/");
+var openAIApiCredential = new ApiKeyCredential(azureOpenAIApiKey);
+var openAIClientOptions = new OpenAIClientOptions
+{
+    Endpoint = azureOpenAIBaseUri
+};
+
+builder.Services.AddSingleton(sp => new ChatClient(
+    model: builder.Configuration["AzureOpenAI:ChatDeploymentName"] ?? "gpt-5.4",
+    credential: openAIApiCredential,
+    options: openAIClientOptions));
+
+builder.Services.AddSingleton(sp => new EmbeddingClient(
+    model: builder.Configuration["AzureOpenAI:EmbeddingDeploymentName"] ?? "text-embedding-ada-002",
+    credential: openAIApiCredential,
+    options: openAIClientOptions));
 
 // Azure Search Configuration
 var azureSearchEndpoint = builder.Configuration["AzureSearch:Endpoint"]!;
